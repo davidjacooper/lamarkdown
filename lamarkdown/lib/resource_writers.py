@@ -43,8 +43,6 @@ def make_data_url(url: str,
 def add_local_dependency(url: str, build_params: BuildParams):
     parsed_url = urllib.parse.urlparse(url)
     if parsed_url.scheme in ['file', '']:
-        # build_params.live_update_deps.add(
-        #     os.path.abspath(urllib.request.url2pathname(parsed_url.path)))
         build_params.live_update_deps.add(
             Path(urllib.request.url2pathname(parsed_url.path)).absolute())
 
@@ -292,7 +290,7 @@ class StylesheetWriter(ResourceWriter):
 
                     # Translate escapes in original URL
                     def escape_repl(m):
-                        ch = m.group("ch")
+                        ch = m.group('ch')
                         return ch if ch else chr(int(m.group('hex'), base=16))
                     url = self.CSS_STR_ESCAPE_REGEX.sub(escape_repl, url)
 

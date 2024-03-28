@@ -52,7 +52,7 @@ import copy
 import hashlib
 import io
 import os
-import pathlib
+from pathlib import Path
 import re
 import subprocess
 import threading
@@ -209,7 +209,7 @@ class LatexCompiler:
         'pdf2svg': _pdf2svg_correction
     }
 
-    def __init__(self, md, cache_factors: tuple, build_dir: Path, cache, progress: Progress,
+    def __init__(self, md, cache_factors: tuple, build_dir: str | Path, cache, progress: Progress,
                  live_update_deps: set[str], tex: str, pdf_svg_converter: str, embedding: str,
                  strip_html_comments: bool, timeout: int, verbose_errors: bool):
 
@@ -220,7 +220,7 @@ class LatexCompiler:
         self._instance = 0
 
         self.md = md
-        self._build_dir = build_dir
+        self._build_dir = Path(build_dir)
         self.cache = cache
         self.progress = progress
         self.live_update_deps = live_update_deps
@@ -288,14 +288,7 @@ class LatexCompiler:
 
             try:
                 file_build_dir.mkdir(exist_ok = True)
-
-                tex_file = file_build_dir / 'job.tex'
-                fls_file = file_build_dir / 'job.fls'
-                pdf_file = file_build_dir / 'job.pdf'
-                svg_file = file_build_dir / 'job.svg'
-
-                with open(tex_file, 'w') as f:
-                    f.write(latex)
+                (file_build_dir / 'job.tex').write_text(latex)
 
             except OSError as e:
                 return self.progress.error(NAME, exception = e).as_html_str()
@@ -305,7 +298,7 @@ class LatexCompiler:
                     NAME, msg = f'Invoking "{self.tex_cmdline[0]}" to compile .tex to .pdf...')
                 check_run(
                     self.tex_cmdline,
-                    pdf_file,
+                    file_build_dir / 'job.pdf',
                     cwd = str(file_build_dir),
                     env = {**os.environ, 'TEXINPUTS': f'.:{os.getcwd()}:'},
                     timeout = self.timeout
@@ -339,7 +332,7 @@ class LatexCompiler:
                                            code = latex,
                                            highlight_lines = highlight_lines).as_html_str()
 
-            if fls_file.exists():
+            if (fls_file := file_build_dir / 'job.fls').exists():
                 dependencies = self.find_live_update_deps(fls_file)
                 self.live_update_deps.update(dependencies.keys())
             else:
@@ -347,6 +340,7 @@ class LatexCompiler:
                 self.progress.warning(NAME, msg = 'Tex command did not create an .fls file')
 
             try:
+                svg_file = file_build_dir / 'job.svg'
                 self.progress.progress(
                     NAME,
                     msg = f'Invoking "{self.converter_cmdline[0]}" to convert .pdf to .svg...')
@@ -356,23 +350,20 @@ class LatexCompiler:
                     cwd = str(file_build_dir)
                 )
 
-                with open(svg_file) as reader:
-                    svg_content = self.converter_correction(reader.read())
-                    element = ElementTree.fromstring(svg_content)
-                    util.strip_namespaces(element)
-                    util.opaque_tree(element)
+                svg_content = self.converter_correction(svg_file.read_text())
+                element = ElementTree.fromstring(svg_content)
+                util.strip_namespaces(element)
+                util.opaque_tree(element)
 
-                    if element.get('viewBox') in [None, '0 0 0 0']:
-                        return self.progress.error(
-                            NAME,
-                            msg = (f'Resulting SVG code is empty -- either {self.tex_cmdline[0]} '
-                                   f'or {self.converter_cmdline[0]} failed'),
-                            output = svg_content).as_html_str()
+                if element.get('viewBox') in [None, '0 0 0 0']:
+                    return self.progress.error(
+                        NAME,
+                        msg = (f'Resulting SVG code is empty -- either {self.tex_cmdline[0]} '
+                               f'or {self.converter_cmdline[0]} failed'),
+                        output = svg_content).as_html_str()
 
                 if self.embedding == DATA_URI_EMBEDDING:
                     data = base64.b64encode(svg_content.strip().encode()).decode()
-                    # data_uri = f'data:image/svg+xml;base64,{data}'
-                    # element = ElementTree.fromstring(f'<img src="{data_uri}" />')
                     element = ElementTree.fromstring(
                         f'<img src="data:image/svg+xml;base64,{data}" />')
 
@@ -391,18 +382,18 @@ class LatexCompiler:
 
 
     def find_live_update_deps(self, fls_file: Path):
-        home = Path.home()
-        cwd = Path.cwd()
-        with open(fls_file) as log:
+        home = Path.home().parts
+        cwd = Path.cwd().parts
+        with fls_file.open() as log:
             input_files = {Path(line[6:-1] if line.endswith('\n') else line[6:]).absolute()
                            for line in log
                            if line.startswith('INPUT ')}
 
-            return {
-                f: f.stat().st_mtime if f.exists() else None
-                for f in input_files
-                if f.parts[:len(home)] == home or f.parts[:len(cwd)] == cwd
-            }
+        return {
+            f: f.stat().st_mtime if f.exists() else None
+            for f in input_files
+            if f.parts[:len(home)] == home or f.parts[:len(cwd)] == cwd
+        }
 
     def are_deps_unchanged(self, dependencies):
         for f, old_mtime in dependencies.items():

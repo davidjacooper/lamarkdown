@@ -1,3 +1,4 @@
+from __future__ import annotations
 from lamarkdown.lib import lamd, directives
 from ..util.mock_progress import MockProgress
 from ..util.mock_cache import MockCache
@@ -9,6 +10,7 @@ from hamcrest import (assert_that, contains_exactly, empty, has_entries, instanc
 import diskcache  # type: ignore
 
 import os
+from pathlib import Path
 import stat
 import tempfile
 
@@ -38,9 +40,9 @@ def mock_exit(code):
 class LamdTestCase(unittest.TestCase):
 
     def setUp(self):
-        self.orig_dir = os.getcwd()
+        self.orig_dir = Path.cwd()
         self.tmp_dir_context = tempfile.TemporaryDirectory()
-        self.tmp_dir = self.tmp_dir_context.__enter__()
+        self.tmp_dir = Path(self.tmp_dir_context.__enter__())
         os.chdir(self.tmp_dir)
 
 
@@ -49,9 +51,8 @@ class LamdTestCase(unittest.TestCase):
         self.tmp_dir_context.__exit__(None, None, None)
 
 
-    def create_mock_file(self, filename):
-        with open(filename, 'w') as writer:
-            writer.write(f'Mock content for {filename}')
+    def create_mock_file(self, path: str | Path):
+        Path(path).write_text(f'Mock content for {path}')
 
 
     def assert_no_errors(self, mock_progress_fn):
@@ -72,14 +73,14 @@ class LamdTestCase(unittest.TestCase):
         assert_that(
             params.build_files,
             contains_exactly(
-                os.path.join(self.tmp_dir, 'md_build.py'),
-                os.path.join(self.tmp_dir, 'test_doc.py')
+                self.tmp_dir / 'md_build.py',
+                self.tmp_dir / 'test_doc.py'
             ))
         assert_that(
             params.build_dir,
-            is_(os.path.join(self.tmp_dir, 'build', 'test_doc.md')))
-        assert_that(params.src_file,            is_(os.path.join(self.tmp_dir, 'test_doc.md')))
-        assert_that(params.target_file,         is_(os.path.join(self.tmp_dir, 'test_doc.html')))
+            is_(self.tmp_dir / 'build' / 'test_doc'))
+        assert_that(params.src_file,            is_(self.tmp_dir / 'test_doc.md'))
+        assert_that(params.target_file,         is_(self.tmp_dir / 'test_doc.html'))
         assert_that(params.build_defaults,      is_(True))
         assert_that(params.build_cache,         instance_of(diskcache.Cache))
         assert_that(params.fetch_cache,         instance_of(diskcache.Cache))
@@ -120,8 +121,8 @@ class LamdTestCase(unittest.TestCase):
         self.assert_no_errors(mock_progress_fn)
         mock_compile.assert_called_once()
         params = mock_compile.call_args.args[0]
-        assert_that(params.src_file,    is_(os.path.join(self.tmp_dir, 'test_doc.md')))
-        assert_that(params.target_file, is_(os.path.join(self.tmp_dir, 'test_doc.html')))
+        assert_that(params.src_file,    is_(self.tmp_dir / 'test_doc.md'))
+        assert_that(params.target_file, is_(self.tmp_dir / 'test_doc.html'))
 
 
     @patch('sys.argv', ['lamd', 'test_doc'])
@@ -168,7 +169,7 @@ class LamdTestCase(unittest.TestCase):
         '''
 
         self.create_mock_file('test_doc.md')
-        os.chmod('test_doc.md', 0)
+        Path('test_doc.md').chmod(0)
         lamd.main()
 
         mock_compile.assert_not_called()
@@ -185,7 +186,7 @@ class LamdTestCase(unittest.TestCase):
 
         self.create_mock_file('test_doc.md')
         self.create_mock_file('test_doc.html')
-        os.chmod('test_doc.html', 0)
+        Path('test_doc.html').chmod(0)
         lamd.main()
 
         mock_compile.assert_not_called()
@@ -201,7 +202,7 @@ class LamdTestCase(unittest.TestCase):
         '''
 
         self.create_mock_file('test_doc.md')
-        os.chmod(self.tmp_dir, stat.S_IREAD | stat.S_IEXEC)
+        self.tmp_dir.chmod(stat.S_IREAD | stat.S_IEXEC)
         lamd.main()
 
         mock_compile.assert_not_called()
@@ -213,9 +214,9 @@ class LamdTestCase(unittest.TestCase):
     @patch('sys.argv', ['lamd', 'test_doc.md'])
     def test_unwritable_build_directory(self, mock_compile, mock_progress_fn):
         self.create_mock_file('test_doc.md')
-        build_dir = os.path.join(self.tmp_dir, 'build')
-        os.makedirs(build_dir)
-        os.chmod(build_dir, stat.S_IREAD | stat.S_IEXEC)
+        build_dir = self.tmp_dir / 'build'
+        build_dir.mkdir()
+        build_dir.chmod(stat.S_IREAD | stat.S_IEXEC)
         lamd.main()
 
         mock_compile.assert_not_called()
@@ -224,24 +225,24 @@ class LamdTestCase(unittest.TestCase):
         assert_that(mock_progress.error_messages, is_not(empty()))
 
 
-    @patch('sys.argv', ['lamd', 'test_doc.md', '-o', os.path.join('dir', 'different.html')])
+    @patch('sys.argv', ['lamd', 'test_doc.md', '-o', str(Path('dir', 'different.html'))])
     def test_target_name1(self, *args):
         self._test_target_name(*args)
 
-    @patch('sys.argv', ['lamd', 'test_doc.md', '--output', os.path.join('dir', 'different.html')])
+    @patch('sys.argv', ['lamd', 'test_doc.md', '--output', str(Path('dir', 'different.html'))])
     def test_target_name2(self, *args):
         self._test_target_name(*args)
 
     def _test_target_name(self, mock_compile, mock_progress_fn):
         self.create_mock_file('test_doc.md')
-        os.makedirs('dir')
+        Path('dir').mkdir()
         lamd.main()
 
         self.assert_no_errors(mock_progress_fn)
         mock_compile.assert_called_once()
         params = mock_compile.call_args.args[0]
-        assert_that(params.src_file,    is_(os.path.join(self.tmp_dir, 'test_doc.md')))
-        assert_that(params.target_file, is_(os.path.join(self.tmp_dir, 'dir', 'different.html')))
+        assert_that(params.src_file,    is_(self.tmp_dir / 'test_doc.md'))
+        assert_that(params.target_file, is_(self.tmp_dir / 'dir' / 'different.html'))
 
 
     @patch('sys.argv', ['lamd', 'test_doc.md', '-o', 'dir'])
@@ -254,30 +255,30 @@ class LamdTestCase(unittest.TestCase):
 
     def _test_target_directory(self, mock_compile, mock_progress_fn):
         self.create_mock_file('test_doc.md')
-        os.makedirs('dir')
+        Path('dir').mkdir()
         lamd.main()
 
         self.assert_no_errors(mock_progress_fn)
         mock_compile.assert_called_once()
         params = mock_compile.call_args.args[0]
-        assert_that(params.src_file,    is_(os.path.join(self.tmp_dir, 'test_doc.md')))
-        assert_that(params.target_file, is_(os.path.join(self.tmp_dir, 'dir', 'test_doc.html')))
+        assert_that(params.src_file,    is_(self.tmp_dir / 'test_doc.md'))
+        assert_that(params.target_file, is_(self.tmp_dir / 'dir' / 'test_doc.html'))
 
 
-    @patch('sys.argv', ['lamd', 'test_doc.md', '-b', 'b1.py', '-b', os.path.join('dir', 'b2.py')])
+    @patch('sys.argv', ['lamd', 'test_doc.md', '-b', 'b1.py', '-b', str(Path('dir', 'b2.py'))])
     def test_extra_build_files1(self, *args):
         self._test_extra_build_files(*args)
 
     @patch('sys.argv', ['lamd', 'test_doc.md',
-                        '--build', 'b1.py', '--build', os.path.join('dir', 'b2.py')])
+                        '--build', 'b1.py', '--build', str(Path('dir', 'b2.py'))])
     def test_extra_build_files2(self, *args):
         self._test_extra_build_files(*args)
 
     def _test_extra_build_files(self, mock_compile, mock_progress_fn):
         self.create_mock_file('test_doc.md')
         self.create_mock_file('b1.py')
-        os.makedirs('dir')
-        self.create_mock_file(os.path.join('dir', 'b2.py'))
+        Path('dir').mkdir()
+        self.create_mock_file(Path('dir', 'b2.py'))
         lamd.main()
 
         self.assert_no_errors(mock_progress_fn)
@@ -285,10 +286,10 @@ class LamdTestCase(unittest.TestCase):
         assert_that(
             mock_compile.call_args.args[0].build_files,
             contains_exactly(
-                os.path.join(self.tmp_dir, 'md_build.py'),
-                os.path.join(self.tmp_dir, 'test_doc.py'),
-                os.path.join(self.tmp_dir, 'b1.py'),
-                os.path.join(self.tmp_dir, 'dir', 'b2.py')))
+                self.tmp_dir / 'md_build.py',
+                self.tmp_dir / 'test_doc.py',
+                self.tmp_dir / 'b1.py',
+                self.tmp_dir / 'dir' / 'b2.py'))
 
 
     @patch('sys.argv', ['lamd', 'test_doc.md', '-B'])
@@ -327,8 +328,8 @@ class LamdTestCase(unittest.TestCase):
         assert_that(
             mock_compile.call_args.args[0].build_files,
             contains_exactly(
-                os.path.join(self.tmp_dir, 'b1.py'),
-                os.path.join(self.tmp_dir, 'b2.py')))
+                self.tmp_dir / 'b1.py',
+                self.tmp_dir / 'b2.py'))
 
 
     @patch('sys.argv', ['lamd', 'test_doc.md', '-e'])

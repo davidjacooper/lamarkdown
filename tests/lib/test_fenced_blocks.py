@@ -4,6 +4,7 @@ from lamarkdown.lib import fenced_blocks
 import unittest
 from unittest.mock import Mock, PropertyMock
 
+from pathlib import Path
 import sys
 import tempfile
 
@@ -130,7 +131,6 @@ class FencedBlocksTestCase(unittest.TestCase):
         fmt = fenced_blocks.matplotlib_formatter(mock_build_params)
 
         result = fmt('mock_plot_fn()', 'lang', 'class', {}, None).strip()
-        # self.assertEqual('<svg>Hello</svg>', result)
         self.assertEqual('<img src="data:image/svg+xml;base64,PHN2Zz5IZWxsbzwvc3ZnPg==" />',
                          result)
         mock_plot_fn.assert_called_once()
@@ -141,18 +141,11 @@ class FencedBlocksTestCase(unittest.TestCase):
         # NOTE: the production function contains R code, so we can't get out of invoking R itself.
         with tempfile.TemporaryDirectory() as dir:
             mock_build_params = Mock()
-            type(mock_build_params).build_dir = PropertyMock(return_value = dir)
+            type(mock_build_params).build_dir = PropertyMock(return_value = Path(dir))
             type(mock_build_params).progress = PropertyMock(return_value = MockProgress())
 
             fmt = fenced_blocks.r_plot_formatter(mock_build_params)
             result = fmt('dev.new(); barplot(1:2)', 'lang', 'class', {}, None).strip()
-
-            # self.assertRegex(result, r'''(?xs)
-            #     (\s* <\?xml \s .*? \?> )?
-            #     (\s* <!DOCTYPE \s .*? > )?
-            #     \s* <svg .*? > .*? </svg>
-            #     \s*
-            # ''')
 
             self.assertRegex(
                 result,

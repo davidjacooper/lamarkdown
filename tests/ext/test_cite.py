@@ -10,6 +10,7 @@ from hamcrest import (assert_that, contains_exactly, contains_string, empty, has
 import markdown
 import lxml.html
 
+from pathlib import Path
 import sys
 import tempfile
 from textwrap import dedent
@@ -412,15 +413,14 @@ class CiteTestCase(unittest.TestCase):
 
             # Create four different reference database files:
             for r in ['A', 'B', 'C', 'D']:
-                with open(f'{dir}/references{r}.bib', 'w') as ref_file:
-                    ref_file.write(fr'''
-                        @article{{ref{r},
-                            author = "The Author {r}",
-                            title = "The Title {r}",
-                            journal = "The Journal {r}",
-                            year = "1990"
-                        }}
-                    ''')
+                Path(f'{dir}/references{r}.bib').write_text(fr'''
+                    @article{{ref{r},
+                        author = "The Author {r}",
+                        title = "The Title {r}",
+                        journal = "The Journal {r}",
+                        year = "1990"
+                    }}
+                ''')
 
             self.run_markdown(
                 fr'''

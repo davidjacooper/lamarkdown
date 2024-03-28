@@ -23,6 +23,7 @@ import importlib.util
 import inspect
 from io import StringIO
 import locale
+from pathlib import Path
 import re
 
 NAME = 'compiling'  # For progress/error messages
@@ -58,8 +59,7 @@ def compile(base_build_params: BuildParams):
                     module_spec.loader.exec_module(build_module)
                 except Exception as e:
                     try:
-                        with open(build_file) as reader:
-                            build_file_contents = reader.read()
+                        build_file_contents = build_file.read_text()
                     except OSError:
                         build_file_contents = '[could not read file]'
                     progress.error(NAME,
@@ -100,17 +100,8 @@ def compile_variant(variant: Variant,
         assert prev_build_params is not None
         build_params.name = variant.name
 
-        # def default_output_namer(t: Path) -> Path:
-        #     split = prev_build_params.output_namer(t).rsplit('.', 1)
-        #     return (
-        #         split[0]
-        #         + prev_build_params.variant_name_sep
-        #         + build_params.name
-        #         + '.'
-        #         + (split[1] if len(split) == 2 else '')
-        #     )
         def default_output_namer(t: Path) -> Path:
-            t = prev_build_params.output_namer(t)
+            t = Path(prev_build_params.output_namer(t))
             return (t.with_name(t.stem + prev_build_params.variant_name_sep + build_params.name)
                     .with_suffix(t.suffix))
 
@@ -156,8 +147,7 @@ def invoke_python_markdown(build_params: BuildParams):
     meta: dict[str, list[str]] = {}
 
     try:
-        with build_params.src_file.open() as src:
-            content_markdown = src.read()
+        content_markdown = build_params.src_file.read_text()
     except OSError as e:
         build_params.progress.error(NAME, msg = str(build_params.src_file), exception = e)
 
@@ -243,7 +233,7 @@ def write_html(content_html: str,
     if 'title' not in build_params.meta:
 
         # Default title, if we can't a better one
-        build_params.meta['title'] = build_params.target_file.name
+        build_params.meta['title'] = build_params.target_file.stem
 
         # Checking the 'meta' extension's metadata
         if 'title' in meta:
@@ -384,8 +374,7 @@ def write_html(content_html: str,
     )
 
     try:
-        with build_params.output_file.open('w') as target:
-            target.write(full_html)
+        build_params.output_file.write_text(full_html)
 
     except OSError as e:
         build_params.progress.error(NAME, exception = e, show_traceback = False)

@@ -14,6 +14,7 @@ from selenium.common.exceptions import TimeoutException
 
 import copy
 import os
+from pathlib import Path
 import tempfile
 from textwrap import dedent
 import threading
@@ -25,7 +26,7 @@ import urllib.request
 class LiveTestCase(unittest.TestCase):
 
     def setUp(self):
-        self.orig_dir = os.getcwd()
+        self.orig_dir = Path.cwd()
 
     def tearDown(self):
         os.chdir(self.orig_dir)
@@ -61,40 +62,44 @@ class LiveTestCase(unittest.TestCase):
                         f'Timeout - document not refreshed after {timeout_secs} seconds: {msg}'
                     ) from e
 
-            with open('doc.md', 'w') as f:
-                f.write(dedent('''
-                    # Doc Heading
+            src_file = Path('doc.md')
+            src_file.write_text(dedent('''
+                # Doc Heading
 
-                    Paragraph 1
-                    {.class1}
+                Paragraph 1
+                {.class1}
 
-                    Paragraph 2
-                    {.class2}
-                '''))
+                Paragraph 2
+                {.class2}
+            '''))
 
-            with open('build_a.py', 'w') as f:
-                f.write(dedent('''
-                    import lamarkdown as la
-                    la('attr_list')
-                '''))
+            build_file_a = Path('build_a.py')
+            build_file_b = Path('build_b.py')
+            build_file_a.write_text(dedent('''
+                import lamarkdown as la
+                la('attr_list')
+            '''))
 
-            extra_file_a = os.path.join('subdir_a', 'extra_a.txt')
-            extra_file_b = os.path.join('subdir_b', 'extra_b.txt')
-            extra_file_c = os.path.join('subdir_c', 'extra_c.txt')
+            subdir_a = Path('subdir_a')
+            subdir_b = Path('subdir_b')
+            subdir_c = Path('subdir_c')
+            subdir_d = Path('subdir_d')
 
-            os.mkdir('subdir_a')
-            os.mkdir('subdir_b')
-            with open(extra_file_a, 'w') as f:
-                f.write('A')
+            extra_file_a = subdir_a / 'extra_a.txt'
+            extra_file_b = subdir_b / 'extra_b.txt'
+            extra_file_c = subdir_c / 'extra_c.txt'
 
+            subdir_a.mkdir()
+            subdir_b.mkdir()
+            extra_file_a.write_text('A')
 
             build_cache = MockCache()
             fetch_cache = MockCache()
             progress = MockProgress()
             base_build_params = build_params.BuildParams(
-                src_file = 'doc.md',
-                target_file = 'doc.html',
-                build_files = ['build_a.py', 'build_b.py'],
+                src_file = src_file,
+                target_file = Path('doc.html'),
+                build_files = [build_file_a, build_file_b],
                 build_dir = 'build',
                 build_defaults = True,
                 build_cache = build_cache,
@@ -133,116 +138,103 @@ class LiveTestCase(unittest.TestCase):
                 # Test dependencies
                 # -----------------
 
-                with open('doc.md', 'w') as f:
-                    f.write(dedent('''
-                        # Doc Heading B
+                src_file.write_text(dedent('''
+                    # Doc Heading B
 
-                        Paragraph 1
-                        {.class1}
+                    Paragraph 1
+                    {.class1}
 
-                        Paragraph 2
-                        {.class2}
-                    '''))
+                    Paragraph 2
+                    {.class2}
+                '''))
 
-                wait_for_update('Modified doc.md')
+                wait_for_update(f'Modified {src_file}')
                 assert_that(find_attr('title', 'textContent'), contains_exactly('Doc Heading B'))
                 assert_that(find_attr('h1',    'textContent'), contains_exactly('Doc Heading B'))
 
-                with open('build_a.py', 'w') as f:
-                    f.write(dedent('''
-                        import lamarkdown as la
-                        la('attr_list')
-                        la.prune('.class1')
-                    '''))
+                build_file_a.write_text(dedent('''
+                    import lamarkdown as la
+                    la('attr_list')
+                    la.prune('.class1')
+                '''))
 
                 wait_for_update('Modified build_a.py')
                 assert_that(find_attr('p', 'textContent'), contains_exactly('Paragraph 2'))
 
-                with open('build_b.py', 'w') as f:
-                    f.write(dedent('''
-                        import lamarkdown as la
-                        la('attr_list')
-                        la.with_html(lambda html: html + '<p>Paragraph 3</p>')
-                    '''))
+                build_file_b.write_text(dedent('''
+                    import lamarkdown as la
+                    la('attr_list')
+                    la.with_html(lambda html: html + '<p>Paragraph 3</p>')
+                '''))
 
                 wait_for_update('Added new build_b.py')
                 assert_that(find_attr('p', 'textContent'), contains_exactly('Paragraph 2',
                                                                             'Paragraph 3'))
 
-                os.remove('build_a.py')
+                build_file_a.unlink()
                 wait_for_update('Deleted build_a.py')
                 assert_that(find_attr('p', 'textContent'), contains_exactly('Paragraph 1',
                                                                             'Paragraph 2',
                                                                             'Paragraph 3'))
 
-                with open('build_a.py', 'w') as f:
-                    f.write(dedent('''
-                        import lamarkdown as la
-                        la('attr_list')
-                    '''))
+                build_file_a.write_text(dedent('''
+                    import lamarkdown as la
+                    la('attr_list')
+                '''))
                 wait_for_update('Added new build_a.py')
                 assert_that(find_attr('p', 'textContent'), contains_exactly('Paragraph 1',
                                                                             'Paragraph 2',
                                                                             'Paragraph 3'))
 
-                os.remove('build_b.py')
+                build_file_b.unlink()
                 wait_for_update('Deleted build_b.py')
                 assert_that(find_attr('p', 'textContent'), contains_exactly('Paragraph 1',
                                                                             'Paragraph 2'))
 
                 # Modifying/creating extra dependency files
 
-                with open(extra_file_a, 'w') as f:
-                    f.write('AA')
-
+                extra_file_a.write_text('AA')
                 wait_for_update(f'Modified {extra_file_a}')
 
-                with open(extra_file_b, 'w') as f:
-                    f.write('BB')
-
+                extra_file_b.write_text('BB')
                 wait_for_update(f'Added new {extra_file_b}')
 
-                os.mkdir('subdir_c')
-                with open(extra_file_c, 'w') as f:
-                    f.write('CC')
-
+                subdir_c.mkdir()
+                extra_file_c.write_text('CC')
                 wait_for_update(f'Added new {extra_file_c} (including directory creation)')
 
                 # Moving files and directories
 
-                os.rename(extra_file_a, extra_file_a + '1')
+                extra_file_a.rename(f'{extra_file_a}1')
                 wait_for_update(f'Renamed {extra_file_a} to {extra_file_a}1')
 
-                os.rename(extra_file_b, os.path.join('subdir_a', 'extra_b.txt'))
+                extra_file_b.rename(subdir_a / 'extra_b.txt')
                 wait_for_update(f'Moved {extra_file_b} to subdir_a/ (monitored)')
 
-                os.mkdir('subdir_d')
-                os.rename(extra_file_c, os.path.join('subdir_d', 'extra_c.txt'))
+                subdir_d.mkdir()
+                extra_file_c.rename(subdir_d / 'extra_c.txt')
                 wait_for_update(f'Moved {extra_file_c} to subdir_d/ (unmonitored)')
 
                 # Restore one of the files, so we can see what happens when we rename the whole
                 # parent directory
-                with open(extra_file_a, 'w') as f:
-                    f.write('AA')
+                extra_file_a.write_text('AA')
                 wait_for_update(f'Restored {extra_file_a}')
-                os.rename('subdir_a', 'subdir_a1')
+                subdir_a.rename('subdir_a1')
                 wait_for_update('Renamed subdir_a/ to subdir_a1/')
 
 
                 # Test variants
                 # -------------
 
-                with open('build_a.py', 'w') as f:
-                    f.write(dedent('''
-                        import lamarkdown as la
-                        la('attr_list')
+                build_file_a.write_text(dedent('''
+                    import lamarkdown as la
+                    la('attr_list')
 
-                        def VariantA(): la.prune('.class2')
-                        def VariantB(): la.prune('.class1')
+                    def VariantA(): la.prune('.class2')
+                    def VariantB(): la.prune('.class1')
 
-                        la.variants(VariantA, VariantB)
-                    '''))
-
+                    la.variants(VariantA, VariantB)
+                '''))
 
                 wait_for_update('Modified build_a.py to specify VariantA and VariantB')
 
@@ -261,20 +253,19 @@ class LiveTestCase(unittest.TestCase):
                 assert_that(find_attr(f'#{live.CONTROL_PANEL_ID} a', 'href'), equal_to(urls))
                 assert_that(find_attr('p', 'textContent'), contains_exactly('Paragraph 2'))
 
-                with open('build_a.py', 'w') as f:
-                    f.write(dedent('''
-                        import lamarkdown as la
-                        la('attr_list')
+                build_file_a.write_text(dedent('''
+                    import lamarkdown as la
+                    la('attr_list')
 
-                        def VariantA1(): la.with_html(lambda html: html + '<div id="x">A1</div>')
-                        def VariantA2(): la.with_html(lambda html: html + '<div id="x">A2</div>')
-                        def VariantB1(): la.with_html(lambda html: html + '<div id="x">B1</div>')
-                        def VariantB2(): la.with_html(lambda html: html + '<div id="x">B2</div>')
-                        def VariantA(): la.variants(VariantA1, VariantA2)
-                        def VariantB(): la.variants(VariantB1, VariantB2)
+                    def VariantA1(): la.with_html(lambda html: html + '<div id="x">A1</div>')
+                    def VariantA2(): la.with_html(lambda html: html + '<div id="x">A2</div>')
+                    def VariantB1(): la.with_html(lambda html: html + '<div id="x">B1</div>')
+                    def VariantB2(): la.with_html(lambda html: html + '<div id="x">B2</div>')
+                    def VariantA(): la.variants(VariantA1, VariantA2)
+                    def VariantB(): la.variants(VariantB1, VariantB2)
 
-                        la.variants(VariantA, VariantB)
-                    '''))
+                    la.variants(VariantA, VariantB)
+                '''))
 
                 wait_for_update(
                     'Modified build_a.py to specify variants A and B, '
@@ -293,11 +284,10 @@ class LiveTestCase(unittest.TestCase):
                     browser.get(urls[i])
                     assert_that(find_attr('div#x', 'textContent'), contains_exactly(name))
 
-                with open('build_a.py', 'w') as f:
-                    f.write(dedent('''
-                        import lamarkdown as la
-                        la('attr_list')
-                    '''))
+                build_file_a.write_text(dedent('''
+                    import lamarkdown as la
+                    la('attr_list')
+                '''))
 
                 wait_for_update('Modified build_a.py to revert to no variants')
                 assert_that(find_attr(f'#{live.CONTROL_PANEL_ID} a', 'href'), empty())
@@ -329,18 +319,18 @@ class LiveTestCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as dir:
             os.chdir(dir)
 
-            with open('doc.md', 'w') as f:
-                f.write('Mock markdown')
+            src_file = Path('doc.md')
+            src_file.write_text('Mock markdown')
 
-            with open('doc.html', 'w') as f:
-                f.write('<div>Mock HTML</div>')
+            target_file = Path('doc.html')
+            target_file.write_text('<div>Mock HTML</div>')
 
             progress = MockProgress()
             base_build_params = build_params.BuildParams(
-                src_file = 'doc.md',
-                target_file = 'doc.html',
+                src_file = src_file,
+                target_file = target_file,
                 build_files = [],
-                build_dir = 'build',
+                build_dir = Path('build'),
                 build_defaults = True,
                 build_cache = MockCache(),
                 fetch_cache = MockCache(),
@@ -376,8 +366,7 @@ class LiveTestCase(unittest.TestCase):
                 mock_compile.return_value = new_complete_build_params
 
                 # Trigger recompile
-                with open('doc.md', 'w') as f:
-                    f.write('Mock markdown!')
+                src_file.write_text('Mock markdown!')
                 time.sleep(0.1)  # Wait for updater to recompile
 
                 self.assertRaisesRegex(Err, '404', load, 'doesntexist')

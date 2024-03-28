@@ -627,7 +627,7 @@ class MdCompilerTestCase(unittest.TestCase):
 
         def for_(f):
             self.set_results(
-                (self.tmp_dir / f).with_suffix('.html'),
+                self.tmp_dir / (f + '.html'),
                 lxml.html.HTMLParser(recover = False, no_network = True)
             )
 

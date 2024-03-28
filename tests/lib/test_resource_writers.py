@@ -8,6 +8,7 @@ from hamcrest import (assert_that, contains_exactly, contains_inanyorder, empty,
 
 import base64
 import os
+from pathlib import Path
 import tempfile
 from xml.etree import ElementTree
 
@@ -19,7 +20,7 @@ from xml.etree import ElementTree
 class ResourceWritersTestCase(unittest.TestCase):
 
     def setUp(self):
-        self.orig_dir = os.getcwd()
+        self.orig_dir = Path.cwd()
 
     def tearDown(self):
         os.chdir(self.orig_dir)
@@ -223,15 +224,12 @@ class ResourceWritersTestCase(unittest.TestCase):
         the embedding of stylesheets.
         """
 
-        with tempfile.TemporaryDirectory() as dir:
+        with tempfile.TemporaryDirectory() as _dir:
 
-            os.chdir(dir)
-            os.mkdir('dir1')
-            os.mkdir(os.path.join('dir1', 'dir2'))
-            os.mkdir(os.path.join('dir1', 'dir2', 'dir3'))
-            os.mkdir('dir4')
-            os.mkdir(os.path.join('dir4', 'dir5'))
-            os.mkdir(os.path.join('dir4', 'dir5', 'dir6'))
+            dir = Path(_dir)
+            os.chdir(_dir)
+            (dir / 'dir1' / 'dir2' / 'dir3').mkdir(parents = True)
+            (dir / 'dir4' / 'dir5' / 'dir6').mkdir(parents = True)
 
             # Test file structure:
             # |
@@ -287,21 +285,13 @@ class ResourceWritersTestCase(unittest.TestCase):
                 p { color: blue }
             ''')
 
-            with open(os.path.join('dir1', 'dir2', 'fileA.css'), 'w') as w:
-                w.write(orig_contentA)
-
-            for file in ['fileB.css', 'fileB.txt']:
-                with open(os.path.join('dir1', 'dir2', 'dir3', file), 'w') as w:
-                    w.write(orig_contentB)
-
-            for file in ['fileC.css', 'fileC.txt']:
-                with open(os.path.join('dir4', file), 'w') as w:
-                    w.write(orig_contentC)
-
-            for file in ['fileD.css', 'fileD.txt']:
-                with open(os.path.join('dir4', 'dir5', 'dir6', file), 'w') as w:
-                    w.write(orig_contentD)
-
+            (dir / 'dir1' / 'dir2' / 'fileA.css').write_text(orig_contentA)
+            (dir / 'dir1' / 'dir2' / 'dir3' / 'fileB.css').write_text(orig_contentB)
+            (dir / 'dir1' / 'dir2' / 'dir3' / 'fileB.txt').write_text(orig_contentB)
+            (dir / 'dir4' / 'fileC.css').write_text(orig_contentC)
+            (dir / 'dir4' / 'fileC.txt').write_text(orig_contentC)
+            (dir / 'dir4' / 'dir5' / 'dir6' / 'fileD.css').write_text(orig_contentD)
+            (dir / 'dir4' / 'dir5' / 'dir6' / 'fileD.txt').write_text(orig_contentD)
 
             # Work out the expected result programmatically. It would be too fragile to hard-code
             # a manual calculation here.
@@ -372,13 +362,11 @@ class ResourceWritersTestCase(unittest.TestCase):
                 ('D', 'E'),
                 ('E', 'C'),
             ]:
-                with open(f'file{file}.css', 'w') as w:
-                    w.write(f'@import "file{to}.css";')
+                Path(f'file{file}.css').write_text(f'@import "file{to}.css";')
 
             mock_build_params = Mock()
             mock_progress = Mock()
             type(mock_build_params).progress = PropertyMock(return_value = mock_progress)
-            # type(mock_build_params).embed_rule = PropertyMock(return_value = lambda *a, **k: True)
             type(mock_build_params).embed_rule = PropertyMock(return_value = lambda **k: True)
             type(mock_build_params).resource_base_url = PropertyMock(return_value = '')
 
@@ -491,7 +479,7 @@ class ResourceWritersTestCase(unittest.TestCase):
             element = ElementTree.Element(tag, src = filename)
 
             resource_writers.embed_media(element, '', mock_build_params)
-            assert_that(live_update_deps, contains_exactly(os.path.abspath(filename)))
+            assert_that(live_update_deps, contains_exactly(Path(filename).absolute()))
 
             live_update_deps.clear()
 
@@ -505,6 +493,6 @@ class ResourceWritersTestCase(unittest.TestCase):
 
             assert_that(
                 live_update_deps,
-                contains_inanyorder(os.path.abspath('file1'), os.path.abspath('file3')))
+                contains_inanyorder(Path('file1').absolute(), Path('file3').absolute()))
 
             live_update_deps.clear()

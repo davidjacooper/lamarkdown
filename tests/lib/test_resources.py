@@ -7,13 +7,14 @@ from unittest.mock import patch, Mock, PropertyMock
 import base64
 import email.utils
 import os
+from pathlib import Path
 import tempfile
 
 
 class ResourcesTestCase(unittest.TestCase):
 
     def setUp(self):
-        self.orig_dir = os.getcwd()
+        self.orig_dir = Path.cwd()
 
     def tearDown(self):
         os.chdir(self.orig_dir)
@@ -30,7 +31,7 @@ class ResourcesTestCase(unittest.TestCase):
 
             testdir = Path('testdir')
             testdir.mkdir()
-            (testdir / 'testfile2').write_text('test content 2')
+            (testdir / 'testfile2.md').write_text('test content 2')
 
             for url,                          expected in [
                 ('testfile.txt',              (False, b'test content', 'text/plain')),

@@ -18,7 +18,6 @@ import watchdog.events
 from dataclasses import dataclass
 import http.server
 import json
-# import os.path
 from pathlib import Path
 import re
 import string
@@ -208,14 +207,12 @@ FAVICON_LINK = f'<link rel="icon" type="image/png" href="data:;base64,{FAVICON_P
 @dataclass
 class OutputDoc:
     name: str
-    # title: str
     full_html: str
     filename: str
-    path: str
+    path: Path
 
 
 class LiveUpdater(watchdog.events.FileSystemEventHandler):
-    # HOME = os.path.expanduser('~')
     HOME = Path.home()
 
     def __init__(self,
@@ -257,12 +254,8 @@ class LiveUpdater(watchdog.events.FileSystemEventHandler):
         for p in self._complete_build_params:
             name = p.name
             output_file = p.output_file
-
-            with open(output_file) as f:
-                full_html = f.read()
-
             self._output_docs[name] = OutputDoc(name = name,
-                                                full_html = full_html,
+                                                full_html = output_file.read_text(),
                                                 filename = output_file.name,
                                                 path = output_file.parent)
 
@@ -292,7 +285,7 @@ class LiveUpdater(watchdog.events.FileSystemEventHandler):
                 path = parent
                 self._dependency_paths.add(path)
                 if path.exists():
-                    self._fs_observer.schedule(self, path)
+                    self._fs_observer.schedule(self, str(path))
 
                 if path == self.HOME:
                     # Don't go outside the HOME directory (if we started inside of it).
@@ -309,7 +302,7 @@ class LiveUpdater(watchdog.events.FileSystemEventHandler):
 
         Once we call recompile(), the set of dependencies will be recalculated.
         '''
-        if event.src_path in self._dependency_files:
+        if Path(event.src_path) in self._dependency_files:
             self.recompile()
 
     def on_created(self, event):
@@ -324,7 +317,7 @@ class LiveUpdater(watchdog.events.FileSystemEventHandler):
             race condition), and
         (b) This probably won't happen _that_ often.
         '''
-        if event.src_path in self._dependency_paths:
+        if Path(event.src_path) in self._dependency_paths:
             self.recompile()
 
 
@@ -338,7 +331,8 @@ class LiveUpdater(watchdog.events.FileSystemEventHandler):
 
 
     def on_deleted(self, event):
-        if event.src_path in self._dependency_files or event.src_path in self._dependency_paths:
+        p = Path(event.src_path)
+        if p in self._dependency_files or p in self._dependency_paths:
             self.recompile()
 
 
@@ -515,10 +509,6 @@ class LiveUpdater(watchdog.events.FileSystemEventHandler):
                 self.wfile.write(message.encode('utf-8'))
 
 
-            # def send_file(self, path: str):
-            #     self.send_response(200)
-            #     self.end_headers()
-            #     self.wfile.write(open(path, 'rb').read())
             def send_file(self, path: Path):
                 self.send_response(200)
                 self.end_headers()
@@ -573,11 +563,6 @@ class LiveUpdater(watchdog.events.FileSystemEventHandler):
                 if re_match:
                     variant_name = re_match['variant']
                     if variant_name in updater_self._output_docs:
-                        # full_path = os.path.join(updater_self._output_docs[variant_name].path,
-                        #                          re_match['file'].replace('/', os.sep))
-                        # if os.path.isfile(full_path):
-                        #     self.send_file(full_path)
-                        #     return
                         full_path = Path(
                             updater_self._output_docs[variant_name].path,
                             *re_match['file'].split('/'))
@@ -588,13 +573,6 @@ class LiveUpdater(watchdog.events.FileSystemEventHandler):
 
                 re_match = BASE_FILE_QUERY_REGEX.fullmatch(self.path)
                 if re_match:
-                    # full_path = os.path.join(
-                    #     updater_self._output_docs[default_variant_name].path,
-                    #     re_match['file'].replace('/', os.sep))
-                    # if os.path.isfile(full_path):
-                    #     self.send_file(full_path)
-                    #     return
-
                     full_path = Path(
                         updater_self._output_docs[default_variant_name].path,
                         *re_match['file'].split('/'))

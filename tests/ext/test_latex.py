@@ -12,7 +12,8 @@ import markdown
 import lxml
 
 import base64
-import os.path
+import os
+from pathlib import Path
 import re
 import sys
 import tempfile
@@ -25,39 +26,37 @@ class LatexTestCase(unittest.TestCase):
     def setUp(self):
         self.progress = None
         self.tmp_dir_context = tempfile.TemporaryDirectory()
-        self.tmp_dir = self.tmp_dir_context.__enter__()
+        self.tmp_dir = Path(self.tmp_dir_context.__enter__())
 
-        self.tex_file = os.path.join(self.tmp_dir, 'output.tex')
-        self.mock_tex_command = os.path.join(self.tmp_dir, 'mock_tex_command')
-        with open(self.mock_tex_command, 'w') as writer:
+        self.tex_file = self.tmp_dir / 'output.tex'
 
-            # Create a tiny Python script to act as a mock 'tex' compiler.
-            writer.write(dedent(
-                fr'''
-                import sys
-                import shutil
-                import os
+        # Create a tiny Python script to act as a mock 'tex' compiler.
+        self.mock_tex_command = self.tmp_dir / 'mock_tex_command'
+        self.mock_tex_command.write_text(dedent(
+            fr'''
+            from pathlib import *
+            import sys
+            import shutil
 
-                # If the .tex file (the one at the known location we're about to copy to) already
-                # exists, find a new name. This lets us write test cases with multiple Latex
-                # snippets.
-                tex_file = '{self.tex_file}'
-                if os.path.exists(tex_file):
-                    index = 1
-                    while os.path.exists(tex_file + str(index)):
-                        index += 1
-                    tex_file = tex_file + str(index)
+            # If the .tex file (the one at the known location we're about to copy to) already
+            # exists, find a new name. This lets us write test cases with multiple Latex
+            # snippets.
+            tex_file = {repr(self.tex_file)}
+            if tex_file.exists():
+                index = 1
+                while (t := Path(str(tex_file) + str(index))).exists():
+                    index += 1
+                tex_file = t
 
-                # Copy the .tex file to a known location, so the test case can find and read it.
-                actual_tex_file = sys.argv[1]
-                shutil.copyfile(actual_tex_file, tex_file)
+            # Copy the .tex file to a known location, so the test case can find and read it.
+            actual_tex_file = sys.argv[1]
+            shutil.copyfile(actual_tex_file, tex_file)
 
-                # Generate a mock .pdf file to satisfy the production code's checks.
-                mock_pdf_file = sys.argv[2]
-                with open(mock_pdf_file, 'w') as writer:
-                    writer.write("mock")
-                '''
-            ))
+            # Generate a mock .pdf file to satisfy the production code's checks.
+            mock_pdf_file = sys.argv[2]
+            Path(mock_pdf_file).write_text('mock')
+            '''
+        ))
 
         self.mock_svg = re.sub(
             r'\n\s*',
@@ -69,20 +68,16 @@ class LatexTestCase(unittest.TestCase):
             '''
         )
 
-        self.mock_pdf2svg_command = os.path.join(self.tmp_dir, 'mock_pdf2svg_command')
-        with open(self.mock_pdf2svg_command, 'w') as writer:
+        # Create another tiny Python script to act as a mock 'pdf2svg' converter.
+        self.mock_pdf2svg_command = self.tmp_dir / 'mock_pdf2svg_command'
+        self.mock_pdf2svg_command.write_text(dedent(
+            fr'''
+            import pathlib, sys
 
-            # Create another tiny Python script to act as a mock 'pdf2svg' converter.
-            writer.write(dedent(
-                fr'''
-                import sys
-
-                # Generate a mock output .svg file.
-                mock_svg_file = sys.argv[2]
-                with open(mock_svg_file, 'w') as writer:
-                    writer.write('{self.mock_svg}')
-                '''
-            ))
+            # Generate a mock output .svg file.
+            pathlib.Path(sys.argv[2]).write_text('{self.mock_svg}')
+            '''
+        ))
 
 
 
@@ -112,11 +107,10 @@ class LatexTestCase(unittest.TestCase):
 
 
     def assert_tex_regex(self, regex, file_index = ''):
-        with open(f'{self.tex_file}{file_index or ""}', 'r') as reader:
-            tex = reader.read()
-
+        tex = Path(f'{self.tex_file}{file_index or ""}').read_text()
         self.assertRegex(
-            tex, regex,
+            tex,
+            regex,
             f'generated Tex code (#{file_index or 0}) does not match expected pattern\n---actual '
             f'tex---\n{tex}\n---expected pattern---\n{dedent(regex).strip()}')
 
@@ -364,7 +358,7 @@ class LatexTestCase(unittest.TestCase):
             strip_html_comments = True)
 
         self.assertFalse(
-            os.path.isfile(self.tex_file),
+            self.tex_file.is_file(),
             'The .tex file should not have been created, because the Latex code was commented out.')
 
 
@@ -388,7 +382,7 @@ class LatexTestCase(unittest.TestCase):
     #         strip_html_comments = False)
     #
     #     self.assertTrue(
-    #         os.path.isfile(self.tex_file),
+    #         self.tex_file.is_file(),
     #         'The .tex file should have been created. Though the Latex code was commented out,'
     #         'the comments should have been disregarded.')
 
@@ -405,11 +399,8 @@ class LatexTestCase(unittest.TestCase):
             \end{document}''',
             strip_html_comments = False)
 
-        with open(self.tex_file) as f:
-            tex = f.read()
-
         assert_that(
-            tex,
+            Path(self.tex_file).read_text(),
             string_contains_in_order(
                 r'\begin{document}',
                 '<!-- commented out -->',
@@ -662,8 +653,8 @@ class LatexTestCase(unittest.TestCase):
             \s* $
         ''')
 
-        self.assertFalse(os.path.exists(f'{self.tex_file}1'))
-        self.assertFalse(os.path.exists(f'{self.tex_file}2'))
+        self.assertFalse(Path(f'{self.tex_file}1').exists())
+        self.assertFalse(Path(f'{self.tex_file}2').exists())
 
         for i in [1, 2, 3, 4]:
             self.assertIn(f'<p>Paragraph{i}</p>', html)
@@ -713,9 +704,8 @@ class LatexTestCase(unittest.TestCase):
         '''Checks that a failure to write the .tex file results in an error message.'''
 
         # Cause the build directory to be non-existent.
-        self.tmp_dir = os.path.join(self.tmp_dir, 'nonexistent')
-        with open(self.tmp_dir, 'w') as f:
-            f.write("Can't be a directory if it's a file.")
+        self.tmp_dir = self.tmp_dir / 'nonexistent'
+        self.tmp_dir.write_text("Can't be a directory if it's a file.")
 
         self.run_markdown(
             r'''
@@ -737,17 +727,13 @@ class LatexTestCase(unittest.TestCase):
         should timeout after N seconds (3 by default) of no output.
         '''
 
-        with open(self.mock_tex_command, 'w') as f:
-            # Use a different mock 'tex' compiler here. It waits for only 1 second, but we set the
-            # timeout to 0.5 seconds below. (Certainly no need for a real infinite loop!)
-            f.write(dedent('''
-                import sys
-                import time
-                time.sleep(1)
-                mock_pdf_file = sys.argv[2]
-                with open(mock_pdf_file, 'w') as f:
-                    f.write('mock')
-            '''))
+        # Use a different mock 'tex' compiler here. It waits for only 1 second, but we set the
+        # timeout to 0.5 seconds below. (Certainly no need for a real infinite loop!)
+        self.mock_tex_command.write_text(dedent('''
+            import pathlib, sys, time
+            time.sleep(1)
+            pathlib.Path(sys.argv[2]).write_text('mock PDF content')
+        '''))
 
         self.run_markdown(
             r'''
@@ -773,22 +759,18 @@ class LatexTestCase(unittest.TestCase):
         not certain whether this actually poses a problem.
         '''
 
-        with open(self.mock_tex_command, 'w') as f:
-            # Use a different mock 'tex' compiler here. It waits 1.2 seconds collectively, more
-            # than the timeout value, but with intervening output to 'keep it alive'.
-            f.write(dedent('''
-                import sys
-                import time
-                time.sleep(0.4)
-                print('keepalive output')
-                time.sleep(0.4)
-                print('keepalive output')
-                time.sleep(0.4)
-                print('keepalive output')
-                mock_pdf_file = sys.argv[2]
-                with open(mock_pdf_file, 'w') as f:
-                    f.write('mock')
-            '''))
+        # Use a different mock 'tex' compiler here. It waits 1.2 seconds collectively, more
+        # than the timeout value, but with intervening output to 'keep it alive'.
+        self.mock_tex_command.write_text(dedent('''
+            import pathlib, sys, time
+            time.sleep(0.4)
+            print('keepalive output')
+            time.sleep(0.4)
+            print('keepalive output')
+            time.sleep(0.4)
+            print('keepalive output')
+            pathlib.Path(sys.argv[2]).write_text('mock PDF content')
+        '''))
 
         # Ensures that the mock compiler doesn't buffer its output.
         os.environ["PYTHONUNBUFFERED"] = "1"
@@ -819,8 +801,7 @@ class LatexTestCase(unittest.TestCase):
                 **kwargs)
 
         # Basic tex command failure
-        with open(self.mock_tex_command, 'w') as writer:
-            writer.write('import sys ; sys.exit(1)')
+        self.mock_tex_command.write_text('import sys ; sys.exit(1)')
         md()
         assert_that(
             self.progress.error_messages,
@@ -836,14 +817,13 @@ class LatexTestCase(unittest.TestCase):
         ]:
 
             # With error message
-            with open(self.mock_tex_command, 'w') as writer:
-                writer.write(dedent('''
-                    import sys
-                    print("excluded")
-                    print("! mock error message")
-                    print("included")
-                    sys.exit(1)
-                '''))
+            self.mock_tex_command.write_text(dedent('''
+                import sys
+                print("excluded")
+                print("! mock error message")
+                print("included")
+                sys.exit(1)
+            '''))
             md(verbose_errors = verbose_errors)
             assert_that(
                 self.progress.error_messages,
@@ -857,15 +837,14 @@ class LatexTestCase(unittest.TestCase):
                 })))
 
             # With error message and line number
-            with open(self.mock_tex_command, 'w') as writer:
-                writer.write(dedent('''
-                    import sys
-                    print("excluded")
-                    print("! mock error message")
-                    print("included")
-                    print("l.99")
-                    sys.exit(1)
-                '''))
+            self.mock_tex_command.write_text(dedent('''
+                import sys
+                print("excluded")
+                print("! mock error message")
+                print("included")
+                print("l.99")
+                sys.exit(1)
+            '''))
             md(verbose_errors = verbose_errors)
             assert_that(
                 self.progress.error_messages,
@@ -883,9 +862,8 @@ class LatexTestCase(unittest.TestCase):
     def test_tex_command_output_failure(self):
         '''Checks that an error is produced if the Tex command fails to output a .pdf file.'''
 
-        with open(self.mock_tex_command, 'w') as writer:
-            # Our mock 'tex' compiler can be trivial in this case
-            writer.write('\n')
+        # Our mock 'tex' compiler can be trivial in this case
+        self.mock_tex_command.write_text('\n')
 
         self.run_markdown(
             r'''
@@ -904,9 +882,8 @@ class LatexTestCase(unittest.TestCase):
     def test_pdf_command_output_failure(self):
         '''Checks that an error is produced if the Tex command fails to output a .pdf file.'''
 
-        with open(self.mock_tex_command, 'w') as writer:
-            # Our mock 'tex' compiler can be trivial in this case
-            writer.write('\n')
+        # Our mock 'tex' compiler can be trivial in this case
+        self.mock_tex_command.write_text('\n')
 
         self.run_markdown(
             r'''
@@ -931,22 +908,16 @@ class LatexTestCase(unittest.TestCase):
             '\n',
 
             r'''
-            import sys
-            mock_svg_file = sys.argv[2]
-            with open(mock_svg_file, 'w') as f:
-                f.write('<svg></svg>')
+            import pathlib, sys
+            pathlib.Path(sys.argv[2]).write_text('<svg></svg>')
             ''',
 
             r'''
-            import sys
-            mock_svg_file = sys.argv[2]
-            with open(mock_svg_file, 'w') as f:
-                f.write('<svg viewBox="0 0 0 0"></svg>')
+            import pathlib, sys
+            pathlib.Path(sys.argv[2]).write_text('<svg viewBox="0 0 0 0"></svg>')
             '''
         ]:
-            with open(self.mock_pdf2svg_command, 'w') as f:
-                f.write(dedent(mock_svg_code))
-
+            self.mock_pdf2svg_command.write_text(dedent(mock_svg_code))
             self.run_markdown(
                 r'''
                 \begin{document}
@@ -980,7 +951,7 @@ class LatexTestCase(unittest.TestCase):
             cache = mock_cache
         )
 
-        self.assertFalse(os.path.exists(f'{self.tex_file}1'),
+        self.assertFalse(Path(f'{self.tex_file}1').exists(),
                          f'Second output file {self.tex_file}1 shouldn\'t be generated')
         self.assertEqual(len(mock_cache.set_calls), 1, 'Number of times cache.set() was called')
 
@@ -1001,7 +972,7 @@ class LatexTestCase(unittest.TestCase):
             root.xpath('//math | //svg | //img'),
             empty())
 
-        self.assertFalse(os.path.exists(self.tex_file))
+        self.assertFalse(self.tex_file.exists())
 
 
     def test_math_escaped(self):
@@ -1024,7 +995,7 @@ class LatexTestCase(unittest.TestCase):
                 html,
                 contains_string(f'Text1{expected_output}Text2'))
 
-            self.assertFalse(os.path.exists(self.tex_file))
+            self.assertFalse(self.tex_file.exists())
 
 
     def test_math_attr(self):
@@ -1179,49 +1150,47 @@ class LatexTestCase(unittest.TestCase):
             contains_exactly('math0-inline', 'math1-inline', 'math2-inline',
                              'math3-block', 'math4-block', 'math5-block'))
 
-        self.assertFalse(os.path.exists(self.tex_file))
+        self.assertFalse(self.tex_file.exists())
 
 
 
     def test_dependency_recognition(self):
 
-        home = os.path.expanduser('~')
-        cwd = os.getcwd()
+        home = Path.home()
+        cwd = Path.cwd()
 
-        with open(self.mock_tex_command, 'a') as writer:
+        with self.mock_tex_command.open('a') as writer:
             # Augment the mock tex compiler, getting it to also output a .fls file (which the
             # standard xetex/pdftex would do with the -recorder flag).
 
             writer.write(dedent(rf'''
+                from pathlib import *
+                from textwrap import dedent
                 cwd = {repr(cwd)}
             '''))
 
             writer.write(dedent(r'''
-                from os.path import join, expanduser, abspath
-                from textwrap import dedent
+                home = Path.home()
+                outside_home = home.parent
 
-                home = expanduser('~')
-                outside_home = abspath(join(home, '..'))
-
-                with open(sys.argv[2][:-4] + '.fls', 'w') as fls:
-                    fls.write(dedent(f"""
-                        INPUT {join('.', 'local-pkg1.sty')}
-                        OUTPUT {join('.', 'local-pkg1a.sty')}
-                        INPUT {join('.', 'dir1', 'local-pkg2.sty')}
-                        OUTPUT {join('.', 'dir1', 'local-pkg2a.sty')}
-                        INPUT {join(cwd, 'local-pkg3.sty')}
-                        OUTPUT {join(cwd, 'local-pkg3a.sty')}
-                        INPUT {join(cwd, 'dir2', 'local-pkg4.sty')}
-                        OUTPUT {join(cwd, 'dir2', 'local-pkg4a.sty')}
-                        INPUT {join(home, 'local-pkg5.sty')}
-                        OUTPUT {join(home, 'local-pkg5a.sty')}
-                        INPUT {join(home, 'dir3', 'local-pkg6.sty')}
-                        OUTPUT {join(home, 'dir3', 'local-pkg6a.sty')}
-                        INPUT {join(outside_home, 'local-pkgX.sty')}
-                        OUTPUT {join(outside_home, 'local-pkgX.sty')}
-                        INPUT {join(outside_home, 'dirX', 'local-pkgX.sty')}
-                        OUTPUT {join(outside_home, 'dirX', 'local-pkgX.sty')}
-                    """))
+                Path(sys.argv[2][:-4] + '.fls').write_text(dedent(f"""
+                    INPUT { Path('.') / 'local-pkg1.sty'}
+                    OUTPUT {Path('.') / 'local-pkg1a.sty'}
+                    INPUT { Path('.') / 'dir1' / 'local-pkg2.sty'}
+                    OUTPUT {Path('.') / 'dir1' / 'local-pkg2a.sty'}
+                    INPUT { cwd / 'local-pkg3.sty'}
+                    OUTPUT {cwd / 'local-pkg3a.sty'}
+                    INPUT { cwd / 'dir2' / 'local-pkg4.sty'}
+                    OUTPUT {cwd / 'dir2' / 'local-pkg4a.sty'}
+                    INPUT { home / 'local-pkg5.sty'}
+                    OUTPUT {home / 'local-pkg5a.sty'}
+                    INPUT { home / 'dir3' / 'local-pkg6.sty'}
+                    OUTPUT {home / 'dir3' / 'local-pkg6a.sty'}
+                    INPUT { outside_home / 'local-pkgX.sty'}
+                    OUTPUT {outside_home / 'local-pkgX.sty'}
+                    INPUT { outside_home / 'dirX' / 'local-pkgX.sty'}
+                    OUTPUT {outside_home / 'dirX' / 'local-pkgX.sty'}
+                """))
             '''))
 
         live_update_deps = set()
@@ -1236,12 +1205,12 @@ class LatexTestCase(unittest.TestCase):
         assert_that(
             live_update_deps,
             contains_inanyorder(
-                os.path.join(cwd, 'local-pkg1.sty'),
-                os.path.join(cwd, 'dir1', 'local-pkg2.sty'),
-                os.path.join(cwd, 'local-pkg3.sty'),
-                os.path.join(cwd, 'dir2', 'local-pkg4.sty'),
-                os.path.join(home, 'local-pkg5.sty'),
-                os.path.join(home, 'dir3', 'local-pkg6.sty'),
+                cwd / 'local-pkg1.sty',
+                cwd / 'dir1' / 'local-pkg2.sty',
+                cwd / 'local-pkg3.sty',
+                cwd / 'dir2' / 'local-pkg4.sty',
+                home / 'local-pkg5.sty',
+                home / 'dir3' / 'local-pkg6.sty',
             )
         )
         assert_that(len(live_update_deps), is_(6))
@@ -1252,21 +1221,18 @@ class LatexTestCase(unittest.TestCase):
 
         cache = {}
         live_update_deps = set()
-        dependency_file = os.path.join(self.tmp_dir, 'dep-file.sty')
-        flag_file       = os.path.join(self.tmp_dir, 'flag-file.txt')
+        dependency_file = self.tmp_dir / 'dep-file.sty'
+        flag_file       = self.tmp_dir / 'flag-file.txt'
 
-        with open(self.mock_tex_command, 'a') as f:
-            f.write(dedent(f'''
-                with open(sys.argv[2][:-4] + '.fls', 'w') as fls:
-                    fls.write('INPUT {dependency_file}')
-            '''))
+        with self.mock_tex_command.open('a') as f:
+            f.write(
+                f'Path(sys.argv[2]).with_suffix(".fls").write_text("INPUT {dependency_file}")\n')
 
-        with open(dependency_file, 'w') as f:
-            f.write('1')
+        dependency_file.write_text('1')
 
         # The dependency file must be in the current directory (or, theoretically, the home dir),
         # or else it won't be considered.
-        orig_cwd = os.getcwd()
+        orig_cwd = Path.cwd()
         os.chdir(self.tmp_dir)
 
         self.run_markdown(
@@ -1280,11 +1246,8 @@ class LatexTestCase(unittest.TestCase):
 
         # Amend the mock compiler so that it creates 'flag_file' when run, so that we know _if_
         # it's been run again.
-        with open(self.mock_tex_command, 'a') as f:
-            f.write(dedent(f'''
-                with open('{flag_file}', 'w') as g:
-                    g.write('1')
-            '''))
+        with self.mock_tex_command.open('a') as f:
+            f.write(f'Path("{flag_file}").write_text("1")\n')
 
         self.run_markdown(
             r'''
@@ -1295,11 +1258,10 @@ class LatexTestCase(unittest.TestCase):
             live_update_deps = live_update_deps
         )
 
-        self.assertFalse(os.path.exists(flag_file),
+        self.assertFalse(flag_file.exists(),
                          'Tex should _not_ be re-run if the dependency file does not change')
 
-        with open(dependency_file, 'w') as f:
-            f.write('2')
+        dependency_file.write_text('2')
         self.run_markdown(
             r'''
             \begin{document}
@@ -1309,7 +1271,7 @@ class LatexTestCase(unittest.TestCase):
             live_update_deps = live_update_deps
         )
 
-        self.assertTrue(os.path.exists(flag_file),
+        self.assertTrue(flag_file.exists(),
                         'Tex _should_ be re-run when the dependency file changes')
 
         os.chdir(orig_cwd)

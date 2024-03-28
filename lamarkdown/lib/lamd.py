@@ -5,7 +5,6 @@ import platformdirs
 
 import argparse
 import os
-# import os.path
 from pathlib import Path
 import re
 
@@ -117,8 +116,7 @@ def main():
             and (f := src_file.with_suffix('.md')).exists()):
         src_file = f
 
-    src_dir = src_file.parent()
-    build_dir = src_dir / 'build' / src_file.stem
+    build_dir = src_file.parent / 'build' / src_file.stem
     build_cache_dir = build_dir / 'cache'
     extra_build_files = [Path(f).absolute() for f in args.build] if args.build else []
 
@@ -160,7 +158,7 @@ def main():
             progress.error(NAME, msg = f'cannot write output: "{directory}" is not writable')
 
     try:
-        build_dir.mkdir(exist_ok = True)
+        build_dir.mkdir(parents = True, exist_ok = True)
     except Exception as e:
         progress.error(NAME, msg = f'cannot create/open build directory: {e}')
 
@@ -180,7 +178,7 @@ def main():
         # Changing into the source directory (in case we're not in it) means that further file paths
         # referenced during the build process will be relative to the source file, and not
         # (necessarily) whatever arbitrary directory we started in.
-        os.chdir(src_dir)
+        os.chdir(src_file.parent)
 
         base_build_params = build_params.BuildParams(
             src_file = src_file,
@@ -188,8 +186,8 @@ def main():
             build_files = (
                 extra_build_files if args.no_auto_build_files
                 else [
-                    src_dir / DIRECTORY_BUILD_FILE,
-                    (src_dir / src_file).with_suffix('.py'),
+                    src_file.parent / DIRECTORY_BUILD_FILE,
+                    src_file.with_suffix('.py'),
                     *extra_build_files
                 ]),
             build_dir = build_dir,
