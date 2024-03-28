@@ -29,7 +29,7 @@ import pygments.formatters
 
 import base64
 import os
-import os.path
+from pathlib import Path
 import re
 import shutil
 import tempfile
@@ -120,7 +120,9 @@ class MarkdownDemoBlock(Block):
                  *self.options['extra_files'],
                  (MARKDOWN_FILE, 'Markdown', 'markdown', True)]
 
-        with tempfile.TemporaryDirectory() as build_dir:
+        with tempfile.TemporaryDirectory() as _build_dir:
+
+            build_dir = Path(_build_dir)
 
             all_file_content = zip(files, SEPARATOR_REGEX.split(text))
             for (filename, descrip, lang, visible), content in all_file_content:
@@ -142,21 +144,21 @@ class MarkdownDemoBlock(Block):
                         else:
                             input_col[-1].tail = placeholder_text
 
-                with open(os.path.join(build_dir, filename), 'w') as writer:
+                with (build_dir / filename).open('w') as writer:
                     writer.write(content)
 
             for res_filename in self.options['resources']:
                 shutil.copy(res_filename, build_dir)
 
-            target_dir = os.path.join(build_dir, 'output')
-            target_file = os.path.join(target_dir, TARGET_FILE)
-            os.makedirs(target_dir, exist_ok = True)
+            target_dir = build_dir / 'output'
+            target_file = target_dir / TARGET_FILE
+            target_dir.mkdir(exist_ok = True)
 
             progress = Progress()
             build_params = BuildParams(
-                src_file = os.path.join(build_dir, MARKDOWN_FILE),
+                src_file = build_dir / MARKDOWN_FILE,
                 target_file = target_file,
-                build_files = [os.path.join(build_dir, BUILD_FILE)],
+                build_files = [build_dir / BUILD_FILE],
                 build_dir = build_dir,
                 build_defaults = False,
                 build_cache = self._build_cache,
@@ -168,19 +170,17 @@ class MarkdownDemoBlock(Block):
                 allow_exec = True
             )
 
-            preserve_cwd = os.getcwd()
+            preserve_cwd = Path.cwd()
             os.chdir(build_dir)
             compile(build_params)
             os.chdir(preserve_cwd)
 
-            output_files = os.listdir(target_dir)
-            for output_file in output_files:
+            for output_file in (output_files := list(target_dir.iterdir())):
                 if len(output_files) > 1:
                     header = ElementTree.SubElement(output_col, 'p')
-                    header.text = output_file
+                    header.text = str(output_file.name)
 
-                with open(os.path.join(target_dir, output_file), 'rb') as reader:
-                    output_bytes = reader.read()
+                output_bytes = output_file.read_bytes()
 
                 if self.options['show_html_body']:
                     output_html = output_bytes.decode()

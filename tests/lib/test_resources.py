@@ -26,12 +26,11 @@ class ResourcesTestCase(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as dir:
             os.chdir(dir)
-            with open('testfile.txt', 'w') as w:
-                w.write('test content')
+            Path('testfile.txt').write_text('test content')
 
-            os.mkdir('testdir')
-            with open(os.path.join('testdir', 'testfile2.md'), 'w') as w:
-                w.write('test content 2')
+            testdir = Path('testdir')
+            testdir.mkdir()
+            (testdir / 'testfile2').write_text('test content 2')
 
             for url,                          expected in [
                 ('testfile.txt',              (False, b'test content', 'text/plain')),

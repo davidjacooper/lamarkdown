@@ -18,7 +18,8 @@ import watchdog.events
 from dataclasses import dataclass
 import http.server
 import json
-import os.path
+# import os.path
+from pathlib import Path
 import re
 import string
 import threading
@@ -214,7 +215,8 @@ class OutputDoc:
 
 
 class LiveUpdater(watchdog.events.FileSystemEventHandler):
-    HOME = os.path.expanduser('~')
+    # HOME = os.path.expanduser('~')
+    HOME = Path.home()
 
     def __init__(self,
                  base_build_params: BuildParams,
@@ -227,8 +229,8 @@ class LiveUpdater(watchdog.events.FileSystemEventHandler):
         self._server: http.server.HTTPServer | None = None
         self._server_thread: threading.Thread | None = None
 
-        self._dependency_files: set[str] = set()
-        self._dependency_paths: set[str] = set()
+        self._dependency_files: set[Path] = set()
+        self._dependency_paths: set[Path] = set()
         self._fs_observer: watchdog.observers.Observer | None = None
 
         self._update_n = 0
@@ -261,8 +263,8 @@ class LiveUpdater(watchdog.events.FileSystemEventHandler):
 
             self._output_docs[name] = OutputDoc(name = name,
                                                 full_html = full_html,
-                                                filename = os.path.basename(output_file),
-                                                path = os.path.dirname(output_file))
+                                                filename = output_file.name,
+                                                path = output_file.parent)
 
 
     def watch_dependencies(self):
@@ -273,23 +275,23 @@ class LiveUpdater(watchdog.events.FileSystemEventHandler):
             self._fs_observer.unschedule_all()
 
         self._dependency_files = {
-            os.path.abspath(file)
+            dep_file.absolute()
             for params in self._complete_build_params
-            for file in [params.src_file, *params.build_files, *params.live_update_deps]
+            for dep_file in [params.src_file, *params.build_files, *params.live_update_deps]
         }
 
         self._dependency_paths = set()
         for path in self._dependency_files:
             while True:
 
-                parent = os.path.dirname(path)
+                parent = path.parent
                 if parent in self._dependency_paths or parent == path:
                     # Either 'parent' was already seen, or we've hit the root directory
                     break
 
                 path = parent
                 self._dependency_paths.add(path)
-                if os.path.exists(path):
+                if path.exists():
                     self._fs_observer.schedule(self, path)
 
                 if path == self.HOME:
@@ -513,10 +515,14 @@ class LiveUpdater(watchdog.events.FileSystemEventHandler):
                 self.wfile.write(message.encode('utf-8'))
 
 
-            def send_file(self, path: str):
+            # def send_file(self, path: str):
+            #     self.send_response(200)
+            #     self.end_headers()
+            #     self.wfile.write(open(path, 'rb').read())
+            def send_file(self, path: Path):
                 self.send_response(200)
                 self.end_headers()
-                self.wfile.write(open(path, 'rb').read())
+                self.wfile.write(path.read_bytes())
 
 
             def do_POST(self):
@@ -567,18 +573,32 @@ class LiveUpdater(watchdog.events.FileSystemEventHandler):
                 if re_match:
                     variant_name = re_match['variant']
                     if variant_name in updater_self._output_docs:
-                        full_path = os.path.join(updater_self._output_docs[variant_name].path,
-                                                 re_match['file'].replace('/', os.sep))
-                        if os.path.isfile(full_path):
+                        # full_path = os.path.join(updater_self._output_docs[variant_name].path,
+                        #                          re_match['file'].replace('/', os.sep))
+                        # if os.path.isfile(full_path):
+                        #     self.send_file(full_path)
+                        #     return
+                        full_path = Path(
+                            updater_self._output_docs[variant_name].path,
+                            *re_match['file'].split('/'))
+                        if full_path.is_file():
                             self.send_file(full_path)
                             return
 
+
                 re_match = BASE_FILE_QUERY_REGEX.fullmatch(self.path)
                 if re_match:
-                    full_path = os.path.join(
+                    # full_path = os.path.join(
+                    #     updater_self._output_docs[default_variant_name].path,
+                    #     re_match['file'].replace('/', os.sep))
+                    # if os.path.isfile(full_path):
+                    #     self.send_file(full_path)
+                    #     return
+
+                    full_path = Path(
                         updater_self._output_docs[default_variant_name].path,
-                        re_match['file'].replace('/', os.sep))
-                    if os.path.isfile(full_path):
+                        *re_match['file'].split('/'))
+                    if full_path.is_file():
                         self.send_file(full_path)
                         return
 

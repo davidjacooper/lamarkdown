@@ -3,7 +3,6 @@ from .build_params import BuildParams
 
 import base64
 import io
-import os.path
 import subprocess
 from typing import Any, Protocol
 from xml.etree import ElementTree
@@ -164,7 +163,7 @@ def r_plot_formatter(build_params: BuildParams) -> Formatter:
 
     def formatter(source, language, css_class, options, md, **kwargs):
         try:
-            out_file = escape_r_string(os.path.join(build_params.build_dir, 'out.svg'))
+            out_file = escape_r_string(str(build_params.build_dir / 'out.svg'))
 
             source = f'''
                 dev.new <- function(...) {{ svg("{out_file}", ...) }}

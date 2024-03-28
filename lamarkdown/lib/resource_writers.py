@@ -10,7 +10,7 @@ from base64 import b64encode
 import html
 import io
 import mimetypes
-import os
+from pathlib import Path
 import re
 from typing import Callable, Iterable
 import urllib.parse
@@ -43,8 +43,10 @@ def make_data_url(url: str,
 def add_local_dependency(url: str, build_params: BuildParams):
     parsed_url = urllib.parse.urlparse(url)
     if parsed_url.scheme in ['file', '']:
+        # build_params.live_update_deps.add(
+        #     os.path.abspath(urllib.request.url2pathname(parsed_url.path)))
         build_params.live_update_deps.add(
-            os.path.abspath(urllib.request.url2pathname(parsed_url.path)))
+            Path(urllib.request.url2pathname(parsed_url.path)).absolute())
 
 
 class ResourceWriter:

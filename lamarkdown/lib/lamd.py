@@ -5,7 +5,8 @@ import platformdirs
 
 import argparse
 import os
-import os.path
+# import os.path
+from pathlib import Path
 import re
 
 
@@ -107,44 +108,40 @@ def main():
 
 
     args = parser.parse_args()
-    src_file = os.path.abspath(args.input)
 
-    # Auto-correct the source filename
-    if not (src_lower := src_file.lower()).endswith('.md') and (
-            (src_file.endswith('.')         and os.path.exists(f := f'{src_file}md'))
-            or (not src_file.endswith('.')  and os.path.exists(f := f'{src_file}.md'))
-            or (src_lower.endswith('.html') and os.path.exists(f := f'{src_file[:-4]}md'))
-            or (src_lower.endswith('.py')   and os.path.exists(f := f'{src_file[:-2]}md'))):
+    src_file = Path(args.input).absolute()
+    if args.input.endswith('.') and not src_file.is_dir():
+        src_file = Path(args.input[:-1]).absolute()
+
+    if (src_file.suffix.lower() in ['', '.html', '.py']
+            and (f := src_file.with_suffix('.md')).exists()):
         src_file = f
 
-    src_dir = os.path.dirname(src_file)
-    base_name = src_file.rsplit('.', 1)[0]
-    build_dir = os.path.join(src_dir, 'build', os.path.basename(src_file))
-    build_cache_dir = os.path.join(build_dir, 'cache')
-    extra_build_files = [os.path.abspath(f) for f in args.build] if args.build else []
+    src_dir = src_file.parent()
+    build_dir = src_dir / 'build' / src_file.stem
+    build_cache_dir = build_dir / 'cache'
+    extra_build_files = [Path(f).absolute() for f in args.build] if args.build else []
 
     progress = prog.Progress()
     if args.output:
-        out = os.path.abspath(args.output)
-        if os.path.isdir(out):
-            target_file = os.path.join(out, os.path.basename(base_name)) + '.html'
-        else:
-            target_file = out
+        target_file = Path(args.output).absolute()
+        if target_file.is_dir():
+            target_file = (target_file / src_file.stem).with_suffix('.html')
     else:
-        target_file = base_name + '.html'
+        target_file = src_file.with_suffix('.html')
 
     go = True
 
-    if not src_file.lower().endswith('.md'):
+    if not src_file.suffix.lower() == '.md':
         go = False
         progress.error(NAME, msg = f'"{src_file}" must end in ".md"')
 
     for in_file in [src_file, *extra_build_files]:
-        if not os.path.exists(in_file):
+        if not in_file.exists():
             go = False
             progress.error(NAME, msg = f'"{in_file}" not found')
 
-        elif not os.path.isfile(in_file):
+        elif not in_file.is_file():
             go = False
             progress.error(NAME, msg = f'"{in_file}" is not a file')
 
@@ -153,32 +150,31 @@ def main():
             progress.error(NAME, msg = f'"{in_file}" is not readable')
 
 
-    if os.path.exists(target_file):
+    if target_file.exists():
         if not os.access(target_file, os.W_OK):
             go = False
             progress.error(NAME, msg = f'cannot write output: "{target_file}" is not writable')
     else:
-        directory = os.path.dirname(os.path.abspath(target_file))
-        if not os.access(directory, os.W_OK):
+        if not os.access(directory := target_file.parent, os.W_OK):
             go = False
             progress.error(NAME, msg = f'cannot write output: "{directory}" is not writable')
 
     try:
-        os.makedirs(build_dir, exist_ok = True)
+        build_dir.mkdir(exist_ok = True)
     except Exception as e:
-        progress.error(NAME, msg = 'cannot create/open build directory: ' + str(e))
+        progress.error(NAME, msg = f'cannot create/open build directory: {e}')
 
     try:
-        build_cache = diskcache.Cache(build_cache_dir)
+        build_cache = diskcache.Cache(str(build_cache_dir))
     except Exception as e:
         go = False
-        progress.error(NAME, msg = 'cannot create/open build cache: ' + str(e))
+        progress.error(NAME, msg = f'cannot create/open build cache: {e}')
 
     try:
         fetch_cache = diskcache.Cache(fetch_cache_dir)
     except Exception as e:
         go = False
-        progress.error(NAME, msg = 'cannot create/open fetch cache: ' + str(e))
+        progress.error(NAME, msg = f'cannot create/open fetch cache: {e}')
 
     if go:
         # Changing into the source directory (in case we're not in it) means that further file paths
@@ -192,8 +188,8 @@ def main():
             build_files = (
                 extra_build_files if args.no_auto_build_files
                 else [
-                    os.path.join(src_dir, DIRECTORY_BUILD_FILE),
-                    os.path.join(src_dir, base_name + '.py'),
+                    src_dir / DIRECTORY_BUILD_FILE,
+                    (src_dir / src_file).with_suffix('.py'),
                     *extra_build_files
                 ]),
             build_dir = build_dir,

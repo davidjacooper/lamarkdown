@@ -5,8 +5,8 @@ from lamarkdown.lib.directives import Directives
 import unittest
 from unittest.mock import patch
 
+from pathlib import Path
 import tempfile
-import os.path
 from textwrap import dedent
 
 
@@ -14,28 +14,25 @@ class BuildModTestCase(unittest.TestCase):
 
     def setUp(self):
         self.tmp_dir_context = tempfile.TemporaryDirectory()
-        self.tmp_dir = self.tmp_dir_context.__enter__()
-        self.html_file = os.path.join(self.tmp_dir, 'testdoc.html')
+        self.tmp_dir = Path(self.tmp_dir_context.__enter__())
+        self.html_file = self.tmp_dir / 'testdoc.html'
 
     def tearDown(self):
         self.tmp_dir_context.__exit__(None, None, None)
 
     def run_md_compiler(self,
-                        markdown='',
-                        build=None,
-                        build_defaults=True,
-                        is_live=False,
-                        recover=False):
-        doc_file   = os.path.join(self.tmp_dir, 'testdoc.md')
-        build_file = os.path.join(self.tmp_dir, 'testbuild.py')
-        build_dir  = os.path.join(self.tmp_dir, 'build')
+                        markdown = '',
+                        build = None,
+                        build_defaults = True,
+                        is_live = False,
+                        recover = False):
+        doc_file   = self.tmp_dir / 'testdoc.md'
+        build_file = self.tmp_dir / 'testbuild.py'
+        build_dir  = self.tmp_dir / 'build'
 
-        with open(doc_file, 'w') as writer:
-            writer.write(dedent(markdown))
-
+        doc_file.write_text(dedent(markdown))
         if build is not None:
-            with open(build_file, 'w') as writer:
-                writer.write(dedent(build))
+            build_file.write_text(dedent(build))
 
         progress = MockProgress()
         bp = build_params.BuildParams(

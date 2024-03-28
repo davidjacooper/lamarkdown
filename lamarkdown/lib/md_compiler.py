@@ -23,7 +23,6 @@ import importlib.util
 import inspect
 from io import StringIO
 import locale
-import os
 import re
 
 NAME = 'compiling'  # For progress/error messages
@@ -42,12 +41,12 @@ def compile(base_build_params: BuildParams):
 
         progress.progress(
             NAME,
-            msg = f'configuring {os.path.basename(build_params.src_file)}')
+            msg = f'configuring {build_params.src_file.name}')
 
         any_build_modules = False
 
         for build_file in build_params.build_files:
-            if os.path.exists(build_file):
+            if build_file.exists():
                 any_build_modules = True
                 module_spec = importlib.util.spec_from_file_location('buildfile', build_file)
                 if module_spec is None or module_spec.loader is None:
@@ -64,7 +63,7 @@ def compile(base_build_params: BuildParams):
                     except OSError:
                         build_file_contents = '[could not read file]'
                     progress.error(NAME,
-                                   msg = f'in build file "{os.path.basename(build_file)}"',
+                                   msg = f'in build file "{build_file.name}"',
                                    exception = e,
                                    code = build_file_contents)
 
@@ -101,15 +100,19 @@ def compile_variant(variant: Variant,
         assert prev_build_params is not None
         build_params.name = variant.name
 
-        def default_output_namer(t):
-            split = prev_build_params.output_namer(t).rsplit('.', 1)
-            return (
-                split[0]
-                + prev_build_params.variant_name_sep
-                + build_params.name
-                + '.'
-                + (split[1] if len(split) == 2 else '')
-            )
+        # def default_output_namer(t: Path) -> Path:
+        #     split = prev_build_params.output_namer(t).rsplit('.', 1)
+        #     return (
+        #         split[0]
+        #         + prev_build_params.variant_name_sep
+        #         + build_params.name
+        #         + '.'
+        #         + (split[1] if len(split) == 2 else '')
+        #     )
+        def default_output_namer(t: Path) -> Path:
+            t = prev_build_params.output_namer(t)
+            return (t.with_name(t.stem + prev_build_params.variant_name_sep + build_params.name)
+                    .with_suffix(t.suffix))
 
         build_params.output_namer = default_output_namer
 
@@ -148,15 +151,15 @@ def compile_variant(variant: Variant,
 def invoke_python_markdown(build_params: BuildParams):
 
     build_params.progress.progress(
-        NAME, msg = f'running Python Markdown for {os.path.basename(build_params.output_file)}')
+        NAME, msg = f'running Python Markdown for {build_params.output_file.name}')
     content_html = ''
     meta: dict[str, list[str]] = {}
 
     try:
-        with open(build_params.src_file, 'r') as src:
+        with build_params.src_file.open() as src:
             content_markdown = src.read()
     except OSError as e:
-        build_params.progress.error(NAME, msg = build_params.src_file, exception = e)
+        build_params.progress.error(NAME, msg = str(build_params.src_file), exception = e)
 
     else:
         try:
@@ -218,7 +221,7 @@ def write_html(content_html: str,
                build_params: BuildParams):
 
     build_params.progress.progress(
-        NAME, msg = f'creating output document {os.path.basename(build_params.output_file)}')
+        NAME, msg = f'creating output document {build_params.output_file.name}')
 
     # Run HTML hook functions
     # (Note: content_html *does not* have a <body> element wrapped around it at this point.)
@@ -233,14 +236,14 @@ def write_html(content_html: str,
     else:
         build_params.progress.error(
             NAME,
-            msg = f'{os.path.basename(build_params.output_file)}: no document created')
+            msg = f'{build_params.output_file.name}: no document created')
         return
 
     # Find document title (if left unspecified)
     if 'title' not in build_params.meta:
 
         # Default title, if we can't a better one
-        build_params.meta['title'] = os.path.basename(build_params.target_base)
+        build_params.meta['title'] = build_params.target_file.name
 
         # Checking the 'meta' extension's metadata
         if 'title' in meta:
@@ -381,7 +384,7 @@ def write_html(content_html: str,
     )
 
     try:
-        with open(build_params.output_file, 'w') as target:
+        with build_params.output_file.open('w') as target:
             target.write(full_html)
 
     except OSError as e:

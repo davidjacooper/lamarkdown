@@ -14,6 +14,7 @@ from lxml.cssselect import CSSSelector
 from lxml.html import HtmlElement
 
 import importlib
+from pathlib import Path
 from typing import Callable, Iterable, Protocol
 from types import ModuleType
 
@@ -210,7 +211,7 @@ class ApiImpl(ModuleType):
 
     @property
     @check_build_params
-    def build_dir(self) -> str:
+    def build_dir(self) -> Path:
         return params().build_dir
 
 
@@ -237,7 +238,7 @@ class ApiImpl(ModuleType):
         params().name = name
 
 
-    def target(self, fn: Callable[[str], str]):
+    def target(self, fn: Callable[[Path], str | Path]):
         _callable(fn)
         params().output_namer = fn
 

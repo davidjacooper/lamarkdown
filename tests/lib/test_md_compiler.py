@@ -15,6 +15,7 @@ import base64
 import collections
 import mimetypes
 import os
+from pathlib import Path
 import tempfile
 from textwrap import dedent
 
@@ -33,9 +34,9 @@ class MdCompilerTestCase(unittest.TestCase):
 
     def setUp(self):
         self.tmp_dir_context = tempfile.TemporaryDirectory()
-        self.tmp_dir = self.tmp_dir_context.__enter__()
-        self.html_file = os.path.join(self.tmp_dir, 'testdoc.html')
-        self.orig_dir = os.getcwd()
+        self.tmp_dir = Path(self.tmp_dir_context.__enter__())
+        self.html_file = self.tmp_dir / 'testdoc.html'
+        self.orig_dir = Path.cwd()
         os.chdir(self.tmp_dir)
 
         self.css_parser = cssutils.CSSParser(
@@ -49,9 +50,10 @@ class MdCompilerTestCase(unittest.TestCase):
         os.chdir(self.orig_dir)
 
 
-    def set_results(self, html_file, html_parser):
+    def set_results(self, html_file: Path, html_parser):
         # Parse with lxml to ensure that the output is well formed, and to allow it to be queried
         # with XPath expressions.
+        print(f'{html_file=}')
         self.root = lxml.html.parse(html_file, html_parser)
 
         # Now find and parse the CSS code, if any:
@@ -73,16 +75,13 @@ class MdCompilerTestCase(unittest.TestCase):
                         is_live = False,
                         recover = False):
 
-        doc_file   = os.path.join(self.tmp_dir, 'testdoc.md')
-        build_file = os.path.join(self.tmp_dir, 'testbuild.py')
-        build_dir  = os.path.join(self.tmp_dir, 'build')
+        doc_file   = self.tmp_dir / 'testdoc.md'
+        build_file = self.tmp_dir / 'testbuild.py'
+        build_dir  = self.tmp_dir / 'build'
 
-        with open(doc_file, 'w') as writer:
-            writer.write(dedent(markdown))
-
+        doc_file.write_text(dedent(markdown))
         if build is not None:
-            with open(build_file, 'w') as writer:
-                writer.write(dedent(build))
+            build_file.write_text(dedent(build))
 
         build_files = [build_file] if build else []
         build_cache = MockCache()
@@ -365,9 +364,8 @@ class MdCompilerTestCase(unittest.TestCase):
 
         # Create mock .css and .js files. Lamarkdown *might* check that these exist, but it
         # shouldn't matter what they contain.
-        for f in ['cssfile.css', 'jsfile.js']:
-            with open(os.path.join(self.tmp_dir, f), 'w'):
-                pass
+        (self.tmp_dir / 'cssfile.css').write_text('')
+        (self.tmp_dir / 'jsfile.js').write_text('')
 
         for code in [
             # Ensure that stylesheets and scripts are not embedded.
@@ -405,11 +403,10 @@ class MdCompilerTestCase(unittest.TestCase):
     def test_css_js_files_embedded(self):
 
         # Create mock .css and .js files. We're embedding them, so their contents do matter here.
-        with open(os.path.join(self.tmp_dir, 'cssfile.css'), 'w') as w:
-            w.write('/*abc\ndef*/p{/*abc\ndef*/color:blue}/*abc\ndef*/')
+        (self.tmp_dir / 'cssfile.css').write_text(
+            '/*abc\ndef*/p{/*abc\ndef*/color:blue}/*abc\ndef*/')
 
-        with open(os.path.join(self.tmp_dir, 'jsfile.js'), 'w') as w:
-            w.write('console.log(1)')
+        (self.tmp_dir / 'jsfile.js').write_text('console.log(1)')
 
         for code in [
             # Ensure that stylesheets and scripts _are_ embedded.
@@ -455,11 +452,8 @@ class MdCompilerTestCase(unittest.TestCase):
         wav_bytes = (b'RIFF$\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00D\xac\x00\x00\x88X'
                      b'\x01\x00\x02\x00\x10\x00data\x00\x00\x00\x00')
 
-        with open(os.path.join(self.tmp_dir, 'image.gif'), 'wb') as f:
-            f.write(gif_bytes)
-
-        with open(os.path.join(self.tmp_dir, 'audio.wav'), 'wb') as f:
-            f.write(wav_bytes)
+        (self.tmp_dir / 'image.gif').write_bytes(gif_bytes)
+        (self.tmp_dir / 'audio.wav').write_bytes(wav_bytes)
 
         for embed_spec in [
             'True',
@@ -608,7 +602,7 @@ class MdCompilerTestCase(unittest.TestCase):
                     la.name = "variant_b1"
 
                 def variant_c():
-                    la.target(lambda original: original + ".variant_c1.html")
+                    la.target(lambda original: f"{original}.variant_c1.html")
 
                 def variant_d():
                     def d1():
@@ -633,7 +627,7 @@ class MdCompilerTestCase(unittest.TestCase):
 
         def for_(f):
             self.set_results(
-                os.path.join(self.tmp_dir, f + '.html'),
+                (self.tmp_dir / f).with_suffix('.html'),
                 lxml.html.HTMLParser(recover = False, no_network = True)
             )
 

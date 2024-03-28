@@ -15,6 +15,7 @@ import diskcache  # type: ignore
 
 from copy import copy, deepcopy
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, ClassVar, Protocol, TypeVar
 
 
@@ -142,7 +143,7 @@ def default_scale_rule(**kwargs) -> float:
     return 1.0
 
 
-def default_output_namer(target):
+def default_output_namer(target: Path) -> Path:
     return target
 
 
@@ -152,10 +153,10 @@ class BuildParams:
     current: ClassVar['BuildParams' | None] = None
 
     # These fields are not intended to be modified once set:
-    src_file: str
-    target_file: str
-    build_files: list[str]
-    build_dir: str
+    src_file: Path
+    target_file: Path
+    build_files: list[Path]
+    build_dir: Path
     build_defaults: bool
     build_cache: diskcache.Cache
     fetch_cache: diskcache.Cache
@@ -165,43 +166,45 @@ class BuildParams:
     allow_exec_cmdline: bool
 
     # These fields *are* modifiable by build modules (or even extensions):
-    name:                 str                        = ''
-    variant_name_sep:     str                        = '_'
-    variants:             list[Variant]              = field(default_factory=list)
-    meta:                 dict[str, str]             = field(default_factory=dict)
-    _named_extensions:    dict[str, dict[str, Any]]  = field(default_factory=dict)
-    obj_extensions:       list[Extension]            = field(default_factory=list)
-    tree_hooks:           list[Callable]             = field(default_factory=list)
-    html_hooks:           list[Callable]             = field(default_factory=list)
-    font_codepoints:      set[int]                   = field(default_factory=set)
-    css_vars:             dict[str, str]             = field(default_factory=dict)
-    css:                  list[ResourceSpec]         = field(default_factory=list)
-    js:                   list[ResourceSpec]         = field(default_factory=list)
-    resource_base_url:    str                        = ''
-    embed_rule:           Rule[bool]                 = default_embed_rule
-    resource_hash_rule:   Rule[str | None]           = default_resource_hash_rule
-    scale_rule:           Rule[float]                = default_scale_rule
-    env:                  dict[str, Any]             = field(default_factory=Environment)
-    output_namer:         Callable[[str], str]       = default_output_namer
-    allow_exec:           bool                       = False
-    live_update_deps:     set[str]                   = field(default_factory=set)
+    name:                 str                           = ''
+    variant_name_sep:     str                           = '_'
+    variants:             list[Variant]                 = field(default_factory=list)
+    meta:                 dict[str, str]                = field(default_factory=dict)
+    _named_extensions:    dict[str, dict[str, Any]]     = field(default_factory=dict)
+    obj_extensions:       list[Extension]               = field(default_factory=list)
+    tree_hooks:           list[Callable]                = field(default_factory=list)
+    html_hooks:           list[Callable]                = field(default_factory=list)
+    font_codepoints:      set[int]                      = field(default_factory=set)
+    css_vars:             dict[str, str]                = field(default_factory=dict)
+    css:                  list[ResourceSpec]            = field(default_factory=list)
+    js:                   list[ResourceSpec]            = field(default_factory=list)
+    resource_base_url:    str                           = ''
+    embed_rule:           Rule[bool]                    = default_embed_rule
+    resource_hash_rule:   Rule[str | None]              = default_resource_hash_rule
+    scale_rule:           Rule[float]                   = default_scale_rule
+    env:                  dict[str, Any]                = field(default_factory=Environment)
+    output_namer:         Callable[[Path], str | Path]  = default_output_namer
+    allow_exec:           bool                          = False
+    live_update_deps:     set[Path]                     = field(default_factory=set)
 
     def set_current(self) -> BuildParams | None:
         existing = BuildParams.current
         BuildParams.current = self
         return existing
 
-    @property
-    def src_base(self):
-        return self.src_file.rsplit('.', 1)[0]
+    # @property
+    # def src_base(self) -> Path:
+    #     # return self.src_file.rsplit('.', 1)[0]
+    #     return self.src_file.with_suffix('')
+    #
+    # @property
+    # def target_base(self) -> Path:
+    #     # return self.target_file.rsplit('.', 1)[0]
+    #     return self.target_file.with_suffix('')
 
     @property
-    def target_base(self):
-        return self.target_file.rsplit('.', 1)[0]
-
-    @property
-    def output_file(self):
-        return self.output_namer(self.target_file)
+    def output_file(self) -> Path:
+        return Path(self.output_namer(self.target_file))
 
     @property
     def resource_xpaths(self) -> set[str]:

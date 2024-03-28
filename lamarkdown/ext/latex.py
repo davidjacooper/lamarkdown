@@ -52,6 +52,7 @@ import copy
 import hashlib
 import io
 import os
+import pathlib
 import re
 import subprocess
 import threading
@@ -76,7 +77,7 @@ class CommandException(Exception):
 
 
 def check_run(command: str | list[str],
-              expected_output_file: str,
+              expected_output_file: Path,
               timeout: float | None = None,
               **kwargs):
     start_time = time.time_ns()
@@ -148,7 +149,7 @@ def check_run(command: str | list[str],
                 output_buf.getvalue())
 
     try:
-        file_time = os.stat(expected_output_file).st_mtime_ns
+        file_time = expected_output_file.stat().st_mtime_ns
     except OSError:
         file_time = 0
 
@@ -208,9 +209,7 @@ class LatexCompiler:
         'pdf2svg': _pdf2svg_correction
     }
 
-    home_dir = os.path.expanduser('~')
-
-    def __init__(self, md, cache_factors: tuple, build_dir: str, cache, progress: Progress,
+    def __init__(self, md, cache_factors: tuple, build_dir: Path, cache, progress: Progress,
                  live_update_deps: set[str], tex: str, pdf_svg_converter: str, embedding: str,
                  strip_html_comments: bool, timeout: int, verbose_errors: bool):
 
@@ -221,7 +220,7 @@ class LatexCompiler:
         self._instance = 0
 
         self.md = md
-        self.build_dir = build_dir
+        self._build_dir = build_dir
         self.cache = cache
         self.progress = progress
         self.live_update_deps = live_update_deps
@@ -285,15 +284,15 @@ class LatexCompiler:
         if run_latex:
             hasher = hashlib.sha1()
             hasher.update(latex.encode('utf-8'))
-            file_build_dir = os.path.join(self.build_dir, 'latex-' + hasher.hexdigest())
+            file_build_dir = self._build_dir / f'latex-{hasher.hexdigest()}'
 
             try:
-                os.makedirs(file_build_dir, exist_ok=True)
+                file_build_dir.mkdir(exist_ok = True)
 
-                tex_file = os.path.join(file_build_dir, 'job.tex')
-                fls_file = os.path.join(file_build_dir, 'job.fls')
-                pdf_file = os.path.join(file_build_dir, 'job.pdf')
-                svg_file = os.path.join(file_build_dir, 'job.svg')
+                tex_file = file_build_dir / 'job.tex'
+                fls_file = file_build_dir / 'job.fls'
+                pdf_file = file_build_dir / 'job.pdf'
+                svg_file = file_build_dir / 'job.svg'
 
                 with open(tex_file, 'w') as f:
                     f.write(latex)
@@ -307,7 +306,7 @@ class LatexCompiler:
                 check_run(
                     self.tex_cmdline,
                     pdf_file,
-                    cwd = file_build_dir,
+                    cwd = str(file_build_dir),
                     env = {**os.environ, 'TEXINPUTS': f'.:{os.getcwd()}:'},
                     timeout = self.timeout
                 )
@@ -340,7 +339,7 @@ class LatexCompiler:
                                            code = latex,
                                            highlight_lines = highlight_lines).as_html_str()
 
-            if os.path.exists(fls_file):
+            if fls_file.exists():
                 dependencies = self.find_live_update_deps(fls_file)
                 self.live_update_deps.update(dependencies.keys())
             else:
@@ -354,7 +353,7 @@ class LatexCompiler:
                 check_run(
                     self.converter_cmdline,
                     svg_file,
-                    cwd = file_build_dir
+                    cwd = str(file_build_dir)
                 )
 
                 with open(svg_file) as reader:
@@ -391,23 +390,23 @@ class LatexCompiler:
         return ElementTree.tostring(element, encoding = 'unicode')
 
 
-    def find_live_update_deps(self, fls_file):
-        cwd = os.getcwd()
+    def find_live_update_deps(self, fls_file: Path):
+        home = Path.home()
+        cwd = Path.cwd()
         with open(fls_file) as log:
-            input_files = {os.path.abspath(line[6:-1] if line.endswith('\n') else line[6:])
+            input_files = {Path(line[6:-1] if line.endswith('\n') else line[6:]).absolute()
                            for line in log
                            if line.startswith('INPUT ')}
 
             return {
-                f: os.stat(f).st_mtime if os.path.exists(f) else None
+                f: f.stat().st_mtime if f.exists() else None
                 for f in input_files
-                if (os.path.commonpath([self.home_dir, f]) == self.home_dir
-                    or os.path.commonpath([cwd, f]) == cwd)
+                if f.parts[:len(home)] == home or f.parts[:len(cwd)] == cwd
             }
 
     def are_deps_unchanged(self, dependencies):
         for f, old_mtime in dependencies.items():
-            if old_mtime != (os.stat(f).st_mtime if os.path.exists(f) else None):
+            if old_mtime != (f.stat().st_mtime if f.exists() else None):
                 return False  # Changed
         return True  # Unchanged
 
@@ -497,7 +496,7 @@ class LatexPreprocessor(markdown.preprocessors.Preprocessor):
         self.strip_html_comments = strip_html_comments
 
 
-    def _format_latex(self, match_obj):
+    def _format_latex(self, match_obj: re.Match) -> str:
         full_doc = match_obj.group('doc')
         if full_doc:
             if self.prepend:
@@ -522,7 +521,7 @@ class LatexPreprocessor(markdown.preprocessors.Preprocessor):
         return self.compiler.compile(full_doc, match_obj.group('attr'))
 
 
-    def run(self, lines):
+    def run(self, lines: list[str]) -> list[str]:
         raw_text = '\n'.join(lines)
         search_text = raw_text
         if self.strip_html_comments:
