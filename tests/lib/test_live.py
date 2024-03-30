@@ -96,7 +96,7 @@ class LiveTestCase(unittest.TestCase):
             build_cache = MockCache()
             fetch_cache = MockCache()
             progress = MockProgress()
-            base_build_params = build_params.BuildParams(
+            base_build_params = [build_params.BuildParams(
                 src_file = src_file,
                 target_file = Path('doc.html'),
                 build_files = [build_file_a, build_file_b],
@@ -109,16 +109,17 @@ class LiveTestCase(unittest.TestCase):
                 is_live = True,
                 allow_exec_cmdline = False,
                 live_update_deps = {extra_file_a, extra_file_b, extra_file_c}
-            )
-            complete_build_params = md_compiler.compile(base_build_params)
+            )]
+            complete_build_params = md_compiler.compile_all(base_build_params)
 
-            updater = live.LiveUpdater(base_build_params, complete_build_params)
+            updater = live.LiveUpdater(base_build_params, complete_build_params, progress)
 
-            threading.Thread(
-                target = lambda: updater.run(address = '127.0.0.1',
-                                             port_range = range(14100, 14101),
-                                             launch_browser = False),
-            ).start()
+            def run_server():
+                updater.run(address = '127.0.0.1',
+                            port_range = range(14100, 14101),
+                            launch_browser = False)
+
+            (server_thread := threading.Thread(target = run_server)).start()
 
             # The server needs a bit of time to start up (asynchronously) before we query it.
             time.sleep(0.5)
@@ -310,9 +311,11 @@ class LiveTestCase(unittest.TestCase):
             finally:
                 browser.quit()
                 updater.shutdown()
+                server_thread.join()
+
 
     @patch('lamarkdown.lib.resources.read_url')
-    @patch('lamarkdown.lib.md_compiler.compile')
+    @patch('lamarkdown.lib.md_compiler.compile_all')
     def test_404(self, mock_compile, mock_read_url):
         mock_read_url.return_value = (False, b'', None)
 
@@ -326,7 +329,7 @@ class LiveTestCase(unittest.TestCase):
             target_file.write_text('<div>Mock HTML</div>')
 
             progress = MockProgress()
-            base_build_params = build_params.BuildParams(
+            base_build_params = [build_params.BuildParams(
                 src_file = src_file,
                 target_file = target_file,
                 build_files = [],
@@ -338,15 +341,16 @@ class LiveTestCase(unittest.TestCase):
                 directives = directives.Directives(progress),
                 is_live = True,
                 allow_exec_cmdline = False,
-            )
+            )]
 
-            updater = live.LiveUpdater(base_build_params, [copy.copy(base_build_params)])
+            updater = live.LiveUpdater(base_build_params, [copy.copy(base_build_params)], progress)
 
-            threading.Thread(
-                target = lambda: updater.run(address = '127.0.0.1',
-                                             port_range = range(14100, 14101),
-                                             launch_browser = False),
-            ).start()
+            def run_server():
+                updater.run(address = '127.0.0.1',
+                            port_range = range(14100, 14101),
+                            launch_browser = False)
+
+            (server_thread := threading.Thread(target = run_server)).start()
 
             def load(path):
                 with urllib.request.urlopen(f'http://127.0.0.1:14100/{path}') as conn:
@@ -362,7 +366,7 @@ class LiveTestCase(unittest.TestCase):
                 self.assertRaisesRegex(Err, '404', load, 'doesntexist/doesntexist/doesntexist')
 
                 new_complete_build_params = [copy.copy(base_build_params)]
-                new_complete_build_params[0].name = 'new_name'
+                new_complete_build_params[0][0].name = 'new_name'
                 mock_compile.return_value = new_complete_build_params
 
                 # Trigger recompile
@@ -376,3 +380,4 @@ class LiveTestCase(unittest.TestCase):
 
             finally:
                 updater.shutdown()
+                server_thread.join()

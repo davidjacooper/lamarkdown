@@ -824,3 +824,70 @@ class MdCompilerTestCase(unittest.TestCase):
         assert_that(
             self.root.xpath('//div/text()')[0],
             is_('Extension'))
+
+
+    def test_multiple_input_files(self):
+        src_file_list    = [self.tmp_dir / 'testdoc1.md',
+                            self.tmp_dir / 'testdoc2.md',
+                            self.tmp_dir / 'testdoc3.md']
+        target_file_list = [self.tmp_dir / 'testoutput1.html',
+                            self.tmp_dir / 'testoutput2.html',
+                            self.tmp_dir / 'testoutput3.html']
+        build_file_list  = [[self.tmp_dir / 'testbuildA.py'],
+                            [self.tmp_dir / 'testbuildB.py'],
+                            [self.tmp_dir / 'testbuildC.py']]
+
+        for src_file in src_file_list:
+            src_file.write_text(f'Para 1 in {src_file.stem}')
+
+        for build_files in build_file_list:
+            build_files[0].write_text(dedent(f'''
+                import lamarkdown as la
+                la.with_html(lambda html: html + '<p>Para 2 inserted by {build_files[0].stem}</p>')
+            '''))
+
+        build_cache = MockCache()
+        fetch_cache = MockCache()
+        progress = MockProgress()
+        direc = directives.Directives(progress)
+
+        starting_build_params = [
+            build_params.BuildParams(
+                src_file            = src_file,
+                target_file         = target_file,
+                build_files         = build_files,
+                build_dir           = self.tmp_dir / 'build',
+                build_defaults      = True,
+                build_cache         = build_cache,
+                fetch_cache         = fetch_cache,
+                progress            = progress,
+                directives          = direc,
+                is_live             = False,
+                allow_exec_cmdline  = False
+            )
+            for (src_file, target_file, build_files) in zip(src_file_list,
+                                                            target_file_list,
+                                                            build_file_list)
+        ]
+
+        complete_build_params = md_compiler.compile_all(starting_build_params)
+
+        assert_that(len(complete_build_params), is_(len(starting_build_params)))
+
+        for (src_file, build_files, target_file, params) in zip(src_file_list,
+                                                                build_file_list,
+                                                                target_file_list,
+                                                                complete_build_params):
+            params_src_file = params[0].src_file
+            params_build_files = params[0].build_files
+            params_target_file = params[0].target_file
+
+            assert_that(params_src_file, is_(src_file))
+            assert_that(params_build_files, is_(build_files))
+            assert_that(params_target_file, is_(target_file))
+
+            html = params_target_file.read_text()
+            assert_that(html,
+                        contains_string(f'<p>Para 1 in {params_src_file.stem}</p>'))
+            assert_that(html,
+                        contains_string(f'<p>Para 2 inserted by {params_build_files[0].stem}</p>'))

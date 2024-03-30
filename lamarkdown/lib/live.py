@@ -11,6 +11,7 @@ improvement for a single local user, and is not designed for security or perform
 from __future__ import annotations
 from lamarkdown.lib import md_compiler
 from lamarkdown.lib.build_params import BuildParams
+from lamarkdown.lib.progress import Progress
 
 import watchdog.observers
 import watchdog.events
@@ -216,12 +217,16 @@ class LiveUpdater(watchdog.events.FileSystemEventHandler):
     HOME = Path.home()
 
     def __init__(self,
-                 base_build_params: BuildParams,
-                 complete_build_params: list[BuildParams]):
+                 base_build_params: list[BuildParams],
+                 complete_build_params: list[list[BuildParams]],
+                 progress: Progress):
+
         self._base_build_params = base_build_params
         self._complete_build_params = complete_build_params
+        self._progress = progress
+
         self._output_docs: dict[str, OutputDoc] = {}
-        self._base_variant = complete_build_params[0].name
+        self._base_variant = complete_build_params[0][0].name
 
         self._server: http.server.HTTPServer | None = None
         self._server_thread: threading.Thread | None = None
@@ -251,13 +256,14 @@ class LiveUpdater(watchdog.events.FileSystemEventHandler):
     def read_and_instrument(self):
         self._output_docs = {}
 
-        for p in self._complete_build_params:
-            name = p.name
-            output_file = p.output_file
-            self._output_docs[name] = OutputDoc(name = name,
-                                                full_html = output_file.read_text(),
-                                                filename = output_file.name,
-                                                path = output_file.parent)
+        for param_variants in self._complete_build_params:
+            for params in param_variants:
+                name = params.name
+                output_file = params.output_file
+                self._output_docs[name] = OutputDoc(name = name,
+                                                    full_html = output_file.read_text(),
+                                                    filename = output_file.name,
+                                                    path = output_file.parent)
 
 
     def watch_dependencies(self):
@@ -269,7 +275,8 @@ class LiveUpdater(watchdog.events.FileSystemEventHandler):
 
         self._dependency_files = {
             dep_file.absolute()
-            for params in self._complete_build_params
+            for param_variants in self._complete_build_params
+            for params in param_variants
             for dep_file in [params.src_file, *params.build_files, *params.live_update_deps]
         }
 
@@ -363,12 +370,12 @@ class LiveUpdater(watchdog.events.FileSystemEventHandler):
                     port = try_port
                     break
                 except OSError:  # Port in use; try next one.
-                    self._base_build_params.progress.warning(
+                    self._progress.warning(
                         NAME, msg = f'Port {try_port} appears to be in use.')
 
             if port is not None:
                 assert self._server is not None
-                self._base_build_params.progress.progress(
+                self._progress.progress(
                     NAME,
                     msg = ('Launching server and browser, and monitoring changes to source/build'
                            'files.'),
@@ -388,7 +395,7 @@ class LiveUpdater(watchdog.events.FileSystemEventHandler):
                 self._server.serve_forever()
 
             else:
-                self._base_build_params.progress.error(
+                self._progress.error(
                     NAME,
                     msg = ('Cannot launch server: all ports in range '
                            f'{port_range.start}-{port_range.stop - 1} are in use.'))
@@ -424,8 +431,9 @@ class LiveUpdater(watchdog.events.FileSystemEventHandler):
 
 
     def clear_cache(self):
-        self._base_build_params.progress.warning(NAME, msg = 'Clearing cache')
-        self._base_build_params.build_cache.clear()
+        self._progress.warning(NAME, msg = 'Clearing cache')
+        for build_params in self._base_build_params:
+            build_params.build_cache.clear()
 
 
     def recompile(self):
@@ -440,18 +448,18 @@ class LiveUpdater(watchdog.events.FileSystemEventHandler):
                 # keep the interface working as much as we can.
 
                 try:
-                    self._complete_build_params = md_compiler.compile(self._base_build_params)
+                    self._complete_build_params = md_compiler.compile_all(self._base_build_params)
                 except Exception as e:
-                    self._base_build_params.progress.error(NAME, exception = e)
+                    self._progress.error(NAME, exception = e)
 
-                self._base_variant = self._complete_build_params[0].name
+                self._base_variant = self._complete_build_params[0][0].name
                 self._update_n += 1
 
                 try:
                     self.read_and_instrument()
                     self.watch_dependencies()
                 except Exception as e:
-                    self._base_build_params.progress.error(NAME, exception = e)
+                    self._progress.error(NAME, exception = e)
 
                 if self._update_event is not None:
                     self._update_event.set()

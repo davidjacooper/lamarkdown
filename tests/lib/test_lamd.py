@@ -36,7 +36,7 @@ def mock_exit(code):
 
 
 @patch('lamarkdown.lib.progress.Progress', new_callable = make_mock_progress_fn)
-@patch('lamarkdown.lib.md_compiler.compile')
+@patch('lamarkdown.lib.md_compiler.compile_all')
 class LamdTestCase(unittest.TestCase):
 
     def setUp(self):
@@ -68,7 +68,7 @@ class LamdTestCase(unittest.TestCase):
 
         self.assert_no_errors(mock_progress_fn)
         mock_compile.assert_called_once()
-        params = mock_compile.call_args.args[0]
+        params = mock_compile.call_args.args[0][0]
 
         assert_that(
             params.build_files,
@@ -89,6 +89,37 @@ class LamdTestCase(unittest.TestCase):
         assert_that(params.directives,          instance_of(directives.Directives))
         assert_that(params.is_live,             is_(False))
         assert_that(params.allow_exec_cmdline,  is_(False))
+
+
+    @patch('sys.argv', ['lamd', 'test_doc1.md', 'test_doc2.md', 'test_doc3.md'])
+    def test_multiple_input_files(self, mock_compile, mock_progress_fn):
+        self.create_mock_file('test_doc1.md')
+        self.create_mock_file('test_doc2.md')
+        self.create_mock_file('test_doc3.md')
+        lamd.main()
+
+        self.assert_no_errors(mock_progress_fn)
+        mock_compile.assert_called_once()
+        for i, params in enumerate(mock_compile.call_args.args[0], 1):
+            assert_that(
+                params.build_files,
+                contains_exactly(
+                    self.tmp_dir / 'md_build.py',
+                    self.tmp_dir / f'test_doc{i}.py'
+                ))
+            assert_that(
+                params.build_dir,
+                is_(self.tmp_dir / 'build' / f'test_doc{i}'))
+            assert_that(params.src_file,            is_(self.tmp_dir / f'test_doc{i}.md'))
+            assert_that(params.target_file,         is_(self.tmp_dir / f'test_doc{i}.html'))
+            assert_that(params.build_defaults,      is_(True))
+            assert_that(params.build_cache,         instance_of(diskcache.Cache))
+            assert_that(params.fetch_cache,         instance_of(diskcache.Cache))
+            assert_that(params.build_cache,         is_not(same_instance(params.fetch_cache)))
+            assert_that(params.progress,            is_(mock_progress_fn()))
+            assert_that(params.directives,          instance_of(directives.Directives))
+            assert_that(params.is_live,             is_(False))
+            assert_that(params.allow_exec_cmdline,  is_(False))
 
 
     @patch.multiple('sys', argv = ['lamd'], exit = mock_exit)
@@ -120,7 +151,7 @@ class LamdTestCase(unittest.TestCase):
 
         self.assert_no_errors(mock_progress_fn)
         mock_compile.assert_called_once()
-        params = mock_compile.call_args.args[0]
+        params = mock_compile.call_args.args[0][0]
         assert_that(params.src_file,    is_(self.tmp_dir / 'test_doc.md'))
         assert_that(params.target_file, is_(self.tmp_dir / 'test_doc.html'))
 
@@ -145,6 +176,12 @@ class LamdTestCase(unittest.TestCase):
         self.create_mock_file('test_doc.py')
         self._test_misnamed_input(*args)
 
+    @patch('sys.argv', ['lamd', 'test_doc1.md', 'test_doc2.py'])
+    def test_misnamed_input5(self, *args):
+        self.create_mock_file('test_doc1.md')
+        self.create_mock_file('test_doc2.py')
+        self._test_misnamed_input(*args)
+
     def _test_misnamed_input(self, mock_compile, mock_progress_fn):
         lamd.main()
         mock_compile.assert_not_called()
@@ -154,7 +191,15 @@ class LamdTestCase(unittest.TestCase):
 
 
     @patch('sys.argv', ['lamd', 'test_doc.md'])
-    def test_missing_input(self, mock_compile, mock_progress_fn):
+    def test_missing_input1(self, *args):
+        self._test_missing_input(*args)
+
+    @patch('sys.argv', ['lamd', 'test_doc1.md', 'test_doc2.md'])
+    def test_missing_input2(self, *args):
+        self.create_mock_file('test_doc1.md')
+        self._test_missing_input(*args)
+
+    def _test_missing_input(self, mock_compile, mock_progress_fn):
         lamd.main()
         mock_compile.assert_not_called()
         mock_progress = mock_progress_fn()
@@ -240,7 +285,7 @@ class LamdTestCase(unittest.TestCase):
 
         self.assert_no_errors(mock_progress_fn)
         mock_compile.assert_called_once()
-        params = mock_compile.call_args.args[0]
+        params = mock_compile.call_args.args[0][0]
         assert_that(params.src_file,    is_(self.tmp_dir / 'test_doc.md'))
         assert_that(params.target_file, is_(self.tmp_dir / 'dir' / 'different.html'))
 
@@ -260,7 +305,7 @@ class LamdTestCase(unittest.TestCase):
 
         self.assert_no_errors(mock_progress_fn)
         mock_compile.assert_called_once()
-        params = mock_compile.call_args.args[0]
+        params = mock_compile.call_args.args[0][0]
         assert_that(params.src_file,    is_(self.tmp_dir / 'test_doc.md'))
         assert_that(params.target_file, is_(self.tmp_dir / 'dir' / 'test_doc.html'))
 
@@ -284,7 +329,7 @@ class LamdTestCase(unittest.TestCase):
         self.assert_no_errors(mock_progress_fn)
         mock_compile.assert_called_once()
         assert_that(
-            mock_compile.call_args.args[0].build_files,
+            mock_compile.call_args.args[0][0].build_files,
             contains_exactly(
                 self.tmp_dir / 'md_build.py',
                 self.tmp_dir / 'test_doc.py',
@@ -305,7 +350,7 @@ class LamdTestCase(unittest.TestCase):
         lamd.main()
         self.assert_no_errors(mock_progress_fn)
         mock_compile.assert_called_once()
-        assert_that(mock_compile.call_args.args[0].build_files, empty())
+        assert_that(mock_compile.call_args.args[0][0].build_files, empty())
 
 
     @patch('sys.argv', ['lamd', 'test_doc.md', '-B', '-b', 'b1.py', '-b', 'b2.py'])
@@ -326,7 +371,7 @@ class LamdTestCase(unittest.TestCase):
         self.assert_no_errors(mock_progress_fn)
         mock_compile.assert_called_once()
         assert_that(
-            mock_compile.call_args.args[0].build_files,
+            mock_compile.call_args.args[0][0].build_files,
             contains_exactly(
                 self.tmp_dir / 'b1.py',
                 self.tmp_dir / 'b2.py'))
@@ -345,7 +390,7 @@ class LamdTestCase(unittest.TestCase):
         lamd.main()
         self.assert_no_errors(mock_progress_fn)
         mock_compile.assert_called_once()
-        assert_that(mock_compile.call_args.args[0].allow_exec, is_(True))
+        assert_that(mock_compile.call_args.args[0][0].allow_exec, is_(True))
 
 
     @patch('sys.argv', ['lamd', 'test_doc.md', '-D'])
@@ -361,7 +406,7 @@ class LamdTestCase(unittest.TestCase):
         lamd.main()
         self.assert_no_errors(mock_progress_fn)
         mock_compile.assert_called_once()
-        assert_that(mock_compile.call_args.args[0].build_defaults, is_(False))
+        assert_that(mock_compile.call_args.args[0][0].build_defaults, is_(False))
 
 
     @patch('sys.argv', ['lamd', 'test_doc.md', '--clean'])
@@ -435,11 +480,14 @@ class LamdTestCase(unittest.TestCase):
         self.assert_no_errors(mock_progress_fn)
         mock_compile.assert_called_once()
 
-        params = mock_compile.call_args.args[0]
-        assert_that(mock_compile.call_args.args[0].is_live, is_(True))
+        mock_progress = mock_progress_fn()
+        params_list = mock_compile.call_args.args[0]
+        assert_that(mock_compile.call_args.args[0][0].is_live, is_(True))
 
         complete_params = mock_compile()
-        mock_live_updater_fn.assert_called_once_with(params, complete_params)
+        mock_live_updater_fn.assert_called_once_with(params_list,
+                                                     complete_params,
+                                                     mock_progress)
 
         live_updater = mock_live_updater_fn()
         live_updater.run.assert_called_once_with(

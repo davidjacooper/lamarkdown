@@ -23,23 +23,32 @@ import importlib.util
 import inspect
 from io import StringIO
 import locale
+import os
 from pathlib import Path
 import re
 
 NAME = 'compiling'  # For progress/error messages
 
 
-def set_default_build_params(build_parms: BuildParams):
+def _set_default_build_params(build_parms: BuildParams):
     lamarkdown.api.m.doc()
 
 
-def compile(base_build_params: BuildParams):
+def compile_all(all_base_build_params: list[BuildParams]) -> list[list[BuildParams]]:
+    all_complete_build_params = []
+    for base_build_params in all_base_build_params:
+        all_complete_build_params.append(compile(base_build_params))
+    return all_complete_build_params
 
+
+def compile(base_build_params: BuildParams) -> list[BuildParams]:
+
+    orig_dir = Path.cwd()
     build_params = deepcopy(base_build_params)
     preserved_build_params = build_params.set_current()
     try:
+        os.chdir(build_params.src_file.parent)
         progress = build_params.progress
-
         progress.progress(
             NAME,
             msg = f'configuring {build_params.src_file.name}')
@@ -70,14 +79,14 @@ def compile(base_build_params: BuildParams):
                 build_params.env.update(build_module.__dict__)
 
         if not any_build_modules and build_params.build_defaults:
-            set_default_build_params(build_params)
+            _set_default_build_params(build_params)
 
         if build_params.variants:
-            all_build_params = []
+            complete_build_params = []
             for variant in build_params.variants:
-                all_build_params += compile_variant(variant, build_params)
+                complete_build_params += compile_variant(variant, build_params)
             progress.progress(NAME, msg = 'all variants done')
-            return all_build_params
+            return complete_build_params
 
         else:
             content_html, meta = invoke_python_markdown(build_params)
@@ -88,11 +97,12 @@ def compile(base_build_params: BuildParams):
     finally:
         if preserved_build_params is not None:
             preserved_build_params.set_current()
+        os.chdir(orig_dir)
 
 
 
 def compile_variant(variant: Variant,
-                    build_params: BuildParams):
+                    build_params: BuildParams) -> list[BuildParams]:
 
     build_params = deepcopy(build_params)
     prev_build_params = build_params.set_current()
@@ -123,15 +133,15 @@ def compile_variant(variant: Variant,
                                         code = variant_fn_source)
 
         if build_params.variants:
-            all_build_params = []
+            complete_build_params = []
             for sub_variant in build_params.variants:
-                all_build_params += compile_variant(sub_variant, build_params)
+                complete_build_params += compile_variant(sub_variant, build_params)
         else:
             content_html, meta = invoke_python_markdown(build_params)
             write_html(content_html, meta, build_params)
-            all_build_params = [build_params]
+            complete_build_params = [build_params]
 
-        return all_build_params
+        return complete_build_params
 
     finally:
         if prev_build_params is not None:
@@ -139,7 +149,7 @@ def compile_variant(variant: Variant,
 
 
 
-def invoke_python_markdown(build_params: BuildParams):
+def invoke_python_markdown(build_params: BuildParams) -> tuple[str, dict[str, list[str]]]:
 
     build_params.progress.progress(
         NAME, msg = f'running Python Markdown for {build_params.output_file.name}')
