@@ -4,8 +4,8 @@ from ..util.mock_progress import MockProgress
 from ..util.mock_cache import MockCache
 import unittest
 from unittest.mock import patch
-from hamcrest import (assert_that, contains_exactly, empty, has_entries, instance_of, is_, is_not,
-                      raises, same_instance)
+from hamcrest import (assert_that, contains_exactly, contains_inanyorder, empty, has_entries,
+                      instance_of, is_, is_not, raises, same_instance)
 
 import diskcache  # type: ignore
 
@@ -91,27 +91,62 @@ class LamdTestCase(unittest.TestCase):
         assert_that(params.allow_exec_cmdline,  is_(False))
 
 
-    @patch('sys.argv', ['lamd', 'test_doc1.md', 'test_doc2.md', 'test_doc3.md'])
-    def test_multiple_input_files(self, mock_compile, mock_progress_fn):
-        self.create_mock_file('test_doc1.md')
-        self.create_mock_file('test_doc2.md')
-        self.create_mock_file('test_doc3.md')
+    @patch('sys.argv', ['lamd', '1.md', '2.MD', 'A/3.md', 'A/4.MD'])
+    def test_multiple_input_files1(self, *args):
+        self._test_multiple_input_files(*args)
+
+    @patch('sys.argv', ['lamd', '.', 'A/3.md', 'A/4.MD'])
+    def test_multiple_input_files2(self, *args):
+        self._test_multiple_input_files(*args)
+
+    @patch('sys.argv', ['lamd', '1.md', '2.MD', 'A'])
+    def test_multiple_input_files3(self, *args):
+        self._test_multiple_input_files(*args)
+
+    @patch('sys.argv', ['lamd', '.', 'A'])
+    def test_multiple_input_files4(self, *args):
+        self._test_multiple_input_files(*args)
+
+    @patch('sys.argv', ['lamd', '.', 'A', '1.md', 'A/4.MD'])
+    def test_multiple_input_files5(self, *args):
+        self._test_multiple_input_files(*args)
+
+    def _test_multiple_input_files(self, mock_compile, mock_progress_fn):
+        (dir_a := Path('A')).mkdir()
+        (dir_b := Path('B')).mkdir()
+        self.create_mock_file('1.md')
+        self.create_mock_file('2.MD')
+        self.create_mock_file('dummy')
+        self.create_mock_file(dir_a / '3.md')
+        self.create_mock_file(dir_a / '4.MD')
+        self.create_mock_file(dir_a / 'dummy')
+        self.create_mock_file(dir_b / '5.md')
+        self.create_mock_file(dir_b / '6.MD')
+
         lamd.main()
 
         self.assert_no_errors(mock_progress_fn)
         mock_compile.assert_called_once()
-        for i, params in enumerate(mock_compile.call_args.args[0], 1):
+
+        param_list = mock_compile.call_args.args[0]
+        assert_that(
+            {p.src_file for p in param_list},
+            contains_inanyorder(self.tmp_dir / '1.md',
+                                self.tmp_dir / '2.MD',
+                                self.tmp_dir / 'A' / '3.md',
+                                self.tmp_dir / 'A' / '4.MD'))
+
+        for params in param_list:
             assert_that(
                 params.build_files,
                 contains_exactly(
-                    self.tmp_dir / 'md_build.py',
-                    self.tmp_dir / f'test_doc{i}.py'
+                    params.src_file.parent / 'md_build.py',
+                    params.src_file.with_suffix('.py')
                 ))
             assert_that(
                 params.build_dir,
-                is_(self.tmp_dir / 'build' / f'test_doc{i}'))
-            assert_that(params.src_file,            is_(self.tmp_dir / f'test_doc{i}.md'))
-            assert_that(params.target_file,         is_(self.tmp_dir / f'test_doc{i}.html'))
+                is_(params.src_file.parent / 'build' / params.src_file.stem))
+            assert_that(params.target_file,         is_(params.src_file.with_suffix('.html')))
             assert_that(params.build_defaults,      is_(True))
             assert_that(params.build_cache,         instance_of(diskcache.Cache))
             assert_that(params.fetch_cache,         instance_of(diskcache.Cache))

@@ -53,7 +53,6 @@ class MdCompilerTestCase(unittest.TestCase):
     def set_results(self, html_file: Path, html_parser):
         # Parse with lxml to ensure that the output is well formed, and to allow it to be queried
         # with XPath expressions.
-        print(f'{html_file=}')
         self.root = lxml.html.parse(html_file, html_parser)
 
         # Now find and parse the CSS code, if any:

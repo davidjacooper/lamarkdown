@@ -1,3 +1,4 @@
+from __future__ import annotations
 from . import build_params, md_compiler, live, progress as prog, directives as direc
 
 import diskcache  # type: ignore
@@ -35,6 +36,88 @@ def port_range_type(s: str) -> range:
 
 def get_fetch_cache_dir() -> str:
     return platformdirs.user_cache_dir(appname = 'lamarkdown', version = VERSION)
+
+
+def check_input_file(in_file: Path, progress: prog.Progress) -> bool:
+    if not in_file.exists():
+        progress.error(NAME, msg = f'"{in_file}" not found')
+
+    elif not in_file.is_file():
+        progress.error(NAME, msg = f'"{in_file}" is not a file')
+
+    elif not os.access(in_file, os.R_OK):
+        progress.error(NAME, msg = f'"{in_file}" is not readable')
+
+    else:
+        return True
+
+    return False
+
+
+def add_build_params(params_list: list[build_params.BuildParams],
+                     args: argparse.Namespace,
+                     src_file: Path,
+                     extra_build_files: list[Path],
+                     fetch_cache: diskcache.Cache,
+                     progress: prog.Progress) -> bool:
+
+    ok = check_input_file(src_file, progress)
+    build_dir = src_file.parent / 'build' / src_file.stem
+
+
+    if args.output is None:
+        target_file = src_file.with_suffix('.html')
+    else:
+        # TODO: args.output _can_ be given (as an actual file) even if there are multiple input
+        # files; we must check for conflicts _after_ compilation.
+        target_file = Path(args.output).absolute()
+        if target_file.is_dir():
+            target_file = (target_file / src_file.stem).with_suffix('.html')
+
+    if target_file.exists():
+        if not os.access(target_file, os.W_OK):
+            ok = False
+            progress.error(NAME, msg = f'cannot write output: "{target_file}" is not writable')
+    else:
+        if not os.access(directory := target_file.parent, os.W_OK):
+            ok = False
+            progress.error(NAME, msg = f'cannot write output: "{directory}" is not writable')
+
+    try:
+        build_dir.mkdir(parents = True, exist_ok = True)
+    except Exception as e:
+        ok = False
+        progress.error(NAME, msg = f'cannot create/open build directory: {e}')
+
+    try:
+        build_cache = diskcache.Cache(str(build_dir / 'cache'))
+    except Exception as e:
+        ok = False
+        progress.error(NAME, msg = f'cannot create/open build cache: {e}')
+
+    if ok:
+        params_list.append(build_params.BuildParams(
+            src_file = src_file,
+            target_file = target_file,
+            build_files = (
+                extra_build_files if args.no_auto_build_files
+                else [
+                    src_file.parent / DIRECTORY_BUILD_FILE,
+                    src_file.with_suffix('.py'),
+                    *extra_build_files
+                ]),
+            build_dir = build_dir,
+            build_defaults = not args.no_build_defaults,
+            build_cache = build_cache,
+            fetch_cache = fetch_cache,
+            progress = progress,
+            directives = direc.Directives(progress),
+            is_live = args.live is True,
+            allow_exec_cmdline = args.allow_exec is True,
+            allow_exec         = args.allow_exec is True
+        ))
+
+    return ok
 
 
 def main():
@@ -108,107 +191,56 @@ def main():
 
     args = parser.parse_args()
 
-    all_base_build_params: list[build_params.BuildParams] = []
-    progress = prog.Progress()
     go = True
+    progress = prog.Progress()
+    try:
+        fetch_cache = diskcache.Cache(fetch_cache_dir)
+    except Exception as e:
+        go = False
+        progress.error(NAME, msg = f'cannot create/open fetch cache: {e}')
 
-    for src_file_str in args.input:
+    all_base_build_params: list[build_params.BuildParams] = []
+    extra_build_files = [Path(f).absolute() for f in args.build] if args.build else []
+    for in_file in extra_build_files:
+        go = go and check_input_file(in_file, progress)
 
-        src_file = Path(src_file_str).absolute()
-        if src_file_str.endswith('.') and not src_file.is_dir():
-            src_file = Path(src_file_str[:-1]).absolute()
+    for src_path_str in args.input:
 
-        if (src_file.suffix.lower() in ['', '.html', '.py']
-                and (f := src_file.with_suffix('.md')).exists()):
-            src_file = f
+        src_path = Path(src_path_str).absolute()
+        if src_path.is_dir():
+            for src_file in src_path.iterdir():
+                if (src_file.is_file()
+                        and src_file.suffix.lower() == '.md'
+                        and os.access(src_file, os.R_OK)):
 
-        build_dir = src_file.parent / 'build' / src_file.stem
-        build_cache_dir = build_dir / 'cache'
-        extra_build_files = [Path(f).absolute() for f in args.build] if args.build else []
+                    go = go and add_build_params(all_base_build_params,
+                                                 args,
+                                                 src_file,
+                                                 extra_build_files,
+                                                 fetch_cache,
+                                                 progress)
 
-        if args.output:
-            target_file = Path(args.output).absolute()
-            if target_file.is_dir():
-                target_file = (target_file / src_file.stem).with_suffix('.html')
         else:
-            target_file = src_file.with_suffix('.html')
+            src_file = src_path
+            if src_path_str.endswith('.'):
+                src_file = Path(src_path_str[:-1]).absolute()
 
+            if (src_file.suffix.lower() in ['', '.html', '.py']
+                    and (f := src_file.with_suffix('.md')).exists()):
+                src_file = f
 
-        if not src_file.suffix.lower() == '.md':
-            go = False
-            progress.error(NAME, msg = f'"{src_file}" must end in ".md"')
-
-        for in_file in [src_file, *extra_build_files]:
-            if not in_file.exists():
+            if not src_file.suffix.lower() == '.md':
                 go = False
-                progress.error(NAME, msg = f'"{in_file}" not found')
+                progress.error(NAME, msg = f'"{src_file}" must end in ".md"')
 
-            elif not in_file.is_file():
-                go = False
-                progress.error(NAME, msg = f'"{in_file}" is not a file')
-
-            elif not os.access(in_file, os.R_OK):
-                go = False
-                progress.error(NAME, msg = f'"{in_file}" is not readable')
-
-
-        if target_file.exists():
-            if not os.access(target_file, os.W_OK):
-                go = False
-                progress.error(NAME, msg = f'cannot write output: "{target_file}" is not writable')
-        else:
-            if not os.access(directory := target_file.parent, os.W_OK):
-                go = False
-                progress.error(NAME, msg = f'cannot write output: "{directory}" is not writable')
-
-        try:
-            build_dir.mkdir(parents = True, exist_ok = True)
-        except Exception as e:
-            go = False
-            progress.error(NAME, msg = f'cannot create/open build directory: {e}')
-
-        try:
-            build_cache = diskcache.Cache(str(build_cache_dir))
-        except Exception as e:
-            go = False
-            progress.error(NAME, msg = f'cannot create/open build cache: {e}')
-
-        try:
-            fetch_cache = diskcache.Cache(fetch_cache_dir)
-        except Exception as e:
-            go = False
-            progress.error(NAME, msg = f'cannot create/open fetch cache: {e}')
-
-        if go:
-            all_base_build_params.append(build_params.BuildParams(
-                src_file = src_file,
-                target_file = target_file,
-                build_files = (
-                    extra_build_files if args.no_auto_build_files
-                    else [
-                        src_file.parent / DIRECTORY_BUILD_FILE,
-                        src_file.with_suffix('.py'),
-                        *extra_build_files
-                    ]),
-                build_dir = build_dir,
-                build_defaults = not args.no_build_defaults,
-                build_cache = build_cache,
-                fetch_cache = fetch_cache,
-                progress = progress,
-                directives = direc.Directives(progress),
-                is_live = args.live is True,
-                allow_exec_cmdline = args.allow_exec is True,
-                allow_exec         = args.allow_exec is True
-            ))
-
-        print(f'{go=}, {src_file_str=}, {src_file.suffix=}')
+            go = go and add_build_params(all_base_build_params,
+                                         args,
+                                         src_file,
+                                         extra_build_files,
+                                         fetch_cache,
+                                         progress)
 
     if go:
-        # Changing into the source directory (in case we're not in it) means that further file paths
-        # referenced during the build process will be relative to the source file, and not
-        # (necessarily) whatever arbitrary directory we started in.
-        # os.chdir(src_file.parent)
-
         if args.clean:
             for base_build_params in all_base_build_params:
                 base_build_params.build_cache.clear()
